@@ -141,7 +141,7 @@ def _detect_and_convert(img:np.ndarray,H:np.ndarray):
         if any((cx-x0)**2+(cy-y0)**2<min_sep_px**2 for x0,y0 in centers):
             continue
         x_cm,y_cm=px2cm((cx,cy))
-        balls.append({"type":CLASS_NAMES[int(cls)],"conf":round(float(cf),3),"x_cm":round(x_cm,2),"y_cm":round(y_cm,2)})
+        balls.append({"type":CLASS_NAMES[int(cls)],"conf":round(float(cf),3),"cx_cm":round(x_cm,2),"cy_cm":round(y_cm,2)})
         centers.append((cx,cy))
         cv2.rectangle(vis,(x1,y1),(x2,y2),(0,255,255),2)
         cv2.putText(vis,CLASS_NAMES[int(cls)],(x1,y1-6),cv2.FONT_HERSHEY_SIMPLEX,0.6,(0,255,255),2)

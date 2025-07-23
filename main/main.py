@@ -38,8 +38,8 @@ if __name__ == "__main__":
             # ----------- 指令判斷 -----------
             if msg == "MOVING":
                 print("開始拍攝")
-                capture_balls(wait_sec=3, show=False, intrinsics_path="/Users/caiminhan/Projects/HIWIN_MAIN/main/vision/intrinsics.yaml")
-                result = plan_shot_from_json(CORD_JSON, 'min', show=False)
+                capture_balls(wait_sec=3, show=True, intrinsics_path="/Users/caiminhan/Projects/HIWIN_MAIN/main/vision/intrinsics.yaml")
+                result = plan_shot_from_json(CORD_JSON, 'min', show=True)
                 
                 if result is None:
                     send_message(sock, "200") # 無法計算路徑

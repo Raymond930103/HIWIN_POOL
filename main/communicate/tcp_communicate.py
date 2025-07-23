@@ -43,5 +43,5 @@ def connect(HOST, PORT, input):
                 
                 
 if __name__ == '__main__':
-    connect(HOST = '192.168.0.152',PORT = 4000,input = '')  # 傳送 '100' 給伺服器
+    connect(HOST = '192.168.0.155',PORT = 4000,input = '')  # 傳送 '100' 給伺服器
     
