@@ -1,9 +1,16 @@
 {
   "name": "pool-frontend",
   "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
   "dependencies": {
+    "axios": "^1.6.0",
     "react": "^18.0.0",
-    "react-dom": "^18.0.0",
-    "axios": "^1.6.0"
+    "react-dom": "^18.0.0"
+  },
+  "devDependencies": {
+    "vite": "^7.1.4"
   }
 }
