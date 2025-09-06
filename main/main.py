@@ -1,5 +1,5 @@
 from vision.yoloball import capture_balls
-from communicate.tcp import create_connection, send_message, receive_message
+from .communicate.tcp import create_connection, send_message, receive_message
 import socket
 from configs.setting import HOST, PORT
 from plan_shot import plan_shot_from_json
