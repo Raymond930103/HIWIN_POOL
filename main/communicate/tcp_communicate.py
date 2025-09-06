@@ -1,12 +1,14 @@
 import socket
 import time
+from communicate.tcp import create_connection, send_message, receive_message
+from configs.setting import HOST, PORT
 
 
 def connect(HOST, PORT, input):
-    
+
     MAX_RETRIES = 3         # 最多重試次數
     RETRY_DELAY = 5         # 每次重試間隔 (秒)
-    
+
     attempt = 0
     while attempt < MAX_RETRIES:
         try:
@@ -40,8 +42,39 @@ def connect(HOST, PORT, input):
                 time.sleep(RETRY_DELAY)
             else:
                 print("已達最大重試次數，程式結束。")
-                
-                
+
+
+def send_shot(angle: float, power: float, spin: float = 0.0,
+              host: str = HOST, port: int = PORT):
+    """Send a shot command to the robot via TCP."""
+    payload = f"{angle:.2f},{power:.2f},{spin:.2f}"
+    sock = create_connection(host, port)
+    if sock is None:
+        return False, "connection failed"
+    try:
+        send_message(sock, payload)
+        resp = receive_message(sock)
+        return True, resp
+    except Exception as e:
+        return False, str(e)
+    finally:
+        sock.close()
+
+
+def send_stop(host: str = HOST, port: int = PORT):
+    """Send emergency stop to robot."""
+    sock = create_connection(host, port)
+    if sock is None:
+        return False, "connection failed"
+    try:
+        send_message(sock, "STOP")
+        resp = receive_message(sock)
+        return True, resp
+    except Exception as e:
+        return False, str(e)
+    finally:
+        sock.close()
+
+
 if __name__ == '__main__':
-    connect(HOST = '192.168.0.155',PORT = 4000,input = '')  # 傳送 '100' 給伺服器
-    
+    connect(HOST='192.168.0.155', PORT=4000, input='')
