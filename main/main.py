@@ -2,7 +2,7 @@ from vision.yoloball import capture_balls
 from communicate.tcp import create_connection, send_message, receive_message
 import socket
 from configs.setting import HOST, PORT
-from run_shot import plan_shot_from_json
+from plan_shot import plan_shot_from_json
 
 import time
 import math 
