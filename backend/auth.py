@@ -58,7 +58,7 @@ def register(user: schemas.UserCreate, db: Session = Depends(database.get_db)):
 
 
 @router.post("/login", response_model=schemas.Token)
-def login(form: schemas.UserCreate, db: Session = Depends(database.get_db)):
+def login(form: schemas.UserLogin, db: Session = Depends(database.get_db)):
     user = db.query(models.User).filter(models.User.email == form.email).first()
     if not user or not verify_password(form.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
