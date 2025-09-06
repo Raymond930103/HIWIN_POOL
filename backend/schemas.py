@@ -8,6 +8,10 @@ class UserCreate(BaseModel):
     password: str
     display_name: str
 
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
 class UserOut(BaseModel):
     id: int
     email: EmailStr
