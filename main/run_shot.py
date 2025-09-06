@@ -1,5 +1,5 @@
 import argparse
-from communicate import tcp_communicate
+from .communicate import tcp_communicate
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Send a shot command to the robot")

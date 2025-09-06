@@ -1,7 +1,7 @@
 import socket
 import time
-from communicate.tcp import create_connection, send_message, receive_message
-from configs.setting import HOST, PORT
+from .tcp import create_connection, send_message, receive_message
+from ..configs.setting import HOST, PORT
 
 
 def connect(HOST, PORT, input):
