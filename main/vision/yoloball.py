@@ -28,8 +28,8 @@ CORNER_JSON = "main/vision/corner.json"
 
 # ═════════ 公開 API ═════════
 
-def capture_balls(*, wait_sec:int=3, show:bool=False, intrinsics_path:str|None=None
-                  ) -> Tuple[str|None, dict|None]:
+def capture_balls(*, wait_sec:int=3, show:bool=False, intrinsics_path:str|None=None,
+                  preview:bool=True) -> Tuple[str|None, dict|None]:
     """拍照→偵測→座標轉換→JSON；Esc 取消回 (None,None)"""
 
     H = _load_homography(CORNER_JSON)   # pixel → cm
@@ -37,7 +37,7 @@ def capture_balls(*, wait_sec:int=3, show:bool=False, intrinsics_path:str|None=N
     if intrinsics_path:
         K,D=_load_intrinsics(intrinsics_path)
 
-    img=_snap(wait_sec)
+    img=_snap(wait_sec, preview=preview)
     if img is None: return None,None
     if K is not None:
         img=_undistort(img,K,D)
@@ -78,7 +78,7 @@ def _load_intrinsics(p:str):
 
 # --- 拍照工具 ---
 
-def _snap(wait:int):
+def _snap(wait:int, preview:bool=True):
     cap=cv2.VideoCapture(CAM_URL)
     if not cap.isOpened():raise RuntimeError('Camera open fail')
     end=time.time()+wait
@@ -86,11 +86,16 @@ def _snap(wait:int):
     while time.time()<end:
         ok,frm=cap.read()
         if ok:
-            _draw_preview(frm,int(end-time.time())+1)
-        if cv2.waitKey(30)&0xFF==27:
+            img=frm
+            if preview:
+                _draw_preview(frm,int(end-time.time())+1)
+        if preview and cv2.waitKey(30)&0xFF==27:
             cap.release();cv2.destroyAllWindows();return None
-    ok,img=cap.read();cap.release();cv2.destroyAllWindows()
-    if not ok:raise RuntimeError('Snap fail')
+    cap.release()
+    if preview:
+        cv2.destroyAllWindows()
+    if img is None:
+        raise RuntimeError('Snap fail: no frame captured')
     return img
 
 def _draw_preview(f,sec):
