@@ -20,4 +20,8 @@ export function shoot(token, angle, power, spin=0) {
   return api.post('/robot/shoot', { angle, power, spin }, { headers: { Authorization: `Bearer ${token}` }});
 }
 
+export function autoShoot(token) {
+  return api.post('/robot/auto', {}, { headers: { Authorization: `Bearer ${token}` }});
+}
+
 export default api;

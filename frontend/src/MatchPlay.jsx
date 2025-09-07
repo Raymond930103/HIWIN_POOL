@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { shoot } from './api';
+import { shoot, autoShoot } from './api';
 
 export default function MatchPlay({ token }) {
   const [angle, setAngle] = useState(45);
@@ -9,11 +9,16 @@ export default function MatchPlay({ token }) {
     shoot(token, angle, power);
   };
 
+  const auto = () => {
+    autoShoot(token);
+  };
+
   return (
     <div>
       <div>Angle: <input type="number" value={angle} onChange={e=>setAngle(parseFloat(e.target.value))} /></div>
       <div>Power: <input type="number" step="0.1" value={power} onChange={e=>setPower(parseFloat(e.target.value))} /></div>
       <button onClick={send}>Shoot</button>
+      <button onClick={auto}>Auto Shoot</button>
     </div>
   );
 }
