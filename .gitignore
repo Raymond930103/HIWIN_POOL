@@ -180,4 +180,6 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
-captures_json/
+/captures_json/
+/main/configs/
+captures_json/cords.json
