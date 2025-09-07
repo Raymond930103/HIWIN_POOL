@@ -183,3 +183,8 @@ cython_debug/
 /captures_json/
 /main/configs/
 captures_json/cords.json
+
+# Frontend artifacts
+frontend/node_modules/
+frontend/dist/
+
