@@ -142,3 +142,37 @@ Please ensure your pull request describes the problem and solution, and any othe
 This project is licensed under the [NAME OF LICENSE] - see the LICENSE.md file for details (if one exists).
 
 If no LICENSE.md file is present, please assume the code is proprietary or contact the project maintainers for licensing information.
+
+## Web Interface
+
+This repository now includes a minimal web dashboard for starting and monitoring the automatic billiard pipeline.
+
+### Backend
+1. Install dependencies:
+   ```bash
+   pip install -r backend/requirements.txt
+   ```
+2. Set environment variables:
+   - `SECRET_KEY` – JWT signing key.
+   - `FRONTEND_ORIGIN` – allowed CORS origin (default `http://localhost:5173`).
+3. Run the API server:
+   ```bash
+   uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+   ```
+
+### Frontend
+1. Create `.env` from the example and adjust the API URL:
+   ```bash
+   cp frontend/.env.example frontend/.env
+   ```
+2. Install and run:
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
+
+### Testing
+1. Register a user via `POST /auth/register` or adjust the backend code for a default account.
+2. Log in on the web page and press **Run Pipeline**. The dashboard will display live status and logs.
+3. Press **Stop** to terminate the running job. The status will change to `stopped`.
