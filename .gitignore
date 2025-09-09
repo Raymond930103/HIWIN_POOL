@@ -188,3 +188,5 @@ captures_json/cords.json
 frontend/node_modules/
 frontend/dist/
 
+main/configs/setting.py
+main/configs/__pycache__/
