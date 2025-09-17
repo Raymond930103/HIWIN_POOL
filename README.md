@@ -116,6 +116,32 @@ This project integrates several key functionalities to achieve automated billiar
 # Tools and Utilities
 The `tools/` directory contains various scripts and utilities that can be helpful for development, testing, calibration, or data processing related to this project. Refer to the specific scripts within that directory for their individual functionalities.
 
+# Web App (Login, Game Control, Stats)
+
+This repo includes a minimal Flask web application under `webapp/` that wraps existing capture and shot planning functions and adds:
+
+- Login/registration
+- Game setup (9-ball / 10-ball), difficulty, turn order
+- Start game: auto-play when first; manual “打擊” button when second
+- “只拍攝並顯示路徑” button to capture and show the Pygame-style path image on the webpage
+- Per-shot data persisted for later stats and ranking
+
+Quick start:
+
+1. Install dependencies (recommend a virtualenv):
+
+   pip3 install -r requirements-web.txt
+
+2. Run the web server:
+
+   python3 webapp/app.py
+
+3. Open http://localhost:8000, register, login, and start a game.
+
+Notes:
+- By default, robot commands are not sent. To enable, set `SEND_TO_ROBOT = True` in `webapp/config.py`.
+- The capture flow uses your camera and may open a preview window via OpenCV during countdown.
+
 # Contributing
 Contributions to this project are welcome! If you'd like to contribute, please follow these general guidelines:
 

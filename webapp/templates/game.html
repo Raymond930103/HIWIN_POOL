@@ -1,0 +1,165 @@
+{% extends 'base.html' %}
+{% block title %}遊戲 - Billiard Robot{% endblock %}
+{% block content %}
+<h3>開始新遊戲</h3>
+<div class="card">
+  <div class="row">
+    <label>模式
+      <select id="mode">
+        <option value="9-ball">9 號球</option>
+        <option value="10-ball">10 號球</option>
+      </select>
+    </label>
+    <label>難度
+      <select id="difficulty">
+        <option value="low">低</option>
+        <option value="medium">中</option>
+        <option value="high">高</option>
+      </select>
+    </label>
+    <label>先後攻
+      <select id="order">
+        <option value="first">先攻</option>
+        <option value="second">後攻</option>
+      </select>
+    </label>
+    <button id="startBtn">開始遊戲</button>
+  </div>
+</div>
+
+<div id="playArea" style="display:none;">
+  <h3>進行中</h3>
+  <div class="actions">
+    <button id="strikeBtn">打擊（機器人）</button>
+    <button id="captureBtn">玩家結束（拍攝）</button>
+  </div>
+  <div id="status"></div>
+  <div class="row">
+    <div class="card" style="flex:1; min-width:320px;">
+      <h4>即時相機</h4>
+      <img id="liveCam" style="max-width:100%; border:1px solid #ddd;" alt="Live camera feed" />
+      <div style="margin-top:8px;">
+        <button id="toggleCamBtn">開啟預覽</button>
+      </div>
+      <p style="color:#666; font-size: 0.9em;">提示：在拍攝/打擊前會暫停預覽以避免攝影機衝突。</p>
+    </div>
+    <div class="card" style="flex:1; min-width:320px;">
+      <h4>規劃圖</h4>
+      <div id="imageWrap"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let gameId = null;
+let currentTurn = null; // 'robot' | 'human'
+let camOn = false;
+const camUrl = '/video_feed';
+
+function setStatus(t) {
+  document.getElementById('status').innerText = t;
+}
+
+function updateControls() {
+  const strikeBtn = document.getElementById('strikeBtn');
+  const captureBtn = document.getElementById('captureBtn');
+  if (!currentTurn) {
+    strikeBtn.disabled = true;
+    captureBtn.disabled = true;
+    return;
+  }
+  const who = currentTurn === 'robot' ? '機器人' : '玩家';
+  setStatus(`目前輪到：${who}`);
+  strikeBtn.disabled = currentTurn !== 'robot';
+  captureBtn.disabled = currentTurn !== 'human';
+}
+
+async function startGame() {
+  const mode = document.getElementById('mode').value;
+  const difficulty = document.getElementById('difficulty').value;
+  const order = document.getElementById('order').value;
+  const res = await fetch('/api/start_game', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode, difficulty, order })
+  });
+  const data = await res.json();
+  if (!res.ok) { alert('開始失敗: ' + (data.error||'')); return; }
+  gameId = data.game_id;
+  document.getElementById('playArea').style.display = '';
+  currentTurn = data.current_turn || (order === 'first' ? 'robot' : 'human');
+  updateControls();
+  // Auto-start camera preview when game begins
+  startCam();
+}
+
+async function strikeOnce() {
+  if (currentTurn !== 'robot') { alert('現在輪到玩家'); return null; }
+  setStatus('打擊中...');
+  // Temporarily stop preview to avoid camera conflicts
+  const wasOn = camOn; stopCam();
+  const res = await fetch('/api/strike', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ game_id: gameId })});
+  const data = await res.json();
+  if (!res.ok) { alert('打擊失敗: ' + (data.error||'')); return null; }
+  updateImage(data.image_path);
+  setStatus(`步驟 ${data.step}，剩餘球數: ${data.balls_remaining}`);
+  if (data.game_status === 'ended' || (data.balls_remaining !== undefined && data.balls_remaining === 0)) {
+    setStatus('遊戲結束');
+    currentTurn = null;
+  } else {
+    currentTurn = data.next_turn || 'human';
+  }
+  updateControls();
+  if (wasOn) startCam();
+  return data;
+}
+
+async function captureOnly() {
+  if (currentTurn !== 'human') { alert('現在輪到機器人'); return; }
+  setStatus('拍攝中...');
+  // Temporarily stop preview to avoid camera conflicts
+  const wasOn = camOn; stopCam();
+  const res = await fetch('/api/capture_only', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ game_id: gameId })});
+  const data = await res.json();
+  if (!res.ok) { alert('拍攝失敗: ' + (data.error||'')); return; }
+  updateImage(data.image_path);
+  setStatus(`玩家回合結束（拍攝）｜步驟 ${data.step}，剩餘球數: ${data.balls_remaining}`);
+  currentTurn = data.next_turn || 'robot';
+  updateControls();
+  if (wasOn) startCam();
+}
+
+function updateImage(path) {
+  const wrap = document.getElementById('imageWrap');
+  wrap.innerHTML = '';
+  if (path) {
+    const img = document.createElement('img');
+    img.className = 'render';
+    img.src = path + '?t=' + Date.now();
+    wrap.appendChild(img);
+  }
+}
+
+function startCam() {
+  if (camOn) return;
+  const img = document.getElementById('liveCam');
+  img.src = camUrl + '?t=' + Date.now();
+  camOn = true;
+  document.getElementById('toggleCamBtn').innerText = '關閉預覽';
+}
+
+function stopCam() {
+  if (!camOn) return;
+  const img = document.getElementById('liveCam');
+  img.src = '';
+  camOn = false;
+  document.getElementById('toggleCamBtn').innerText = '開啟預覽';
+  // Ask server to release camera device promptly
+  fetch('/api/camera/release', { method: 'POST' }).catch(()=>{});
+}
+
+document.getElementById('startBtn').addEventListener('click', startGame);
+document.getElementById('strikeBtn').addEventListener('click', strikeOnce);
+document.getElementById('captureBtn').addEventListener('click', captureOnly);
+document.getElementById('toggleCamBtn').addEventListener('click', () => { camOn ? stopCam() : startCam(); });
+</script>
+{% endblock %}

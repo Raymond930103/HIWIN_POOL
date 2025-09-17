@@ -22,8 +22,17 @@ import json
 import argparse
 from typing import Optional, Tuple, List, Union
 
-from core.billiard_api import compute_shot         # 需 core/__init__.py
-import gui.visualize as visualize                  # 需 gui/__init__.py
+# 允許作為套件 (import main.run_shot) 或腳本 (python main/run_shot.py) 執行
+try:
+    from .core.billiard_api import compute_shot         # 當作套件匯入時
+    from . import gui as _gui_pkg  # 確保相對匯入生效
+    import main.gui.visualize as visualize
+except Exception:
+    # 直接腳本執行時，將本檔所在資料夾加入 sys.path
+    import os, sys
+    sys.path.append(os.path.dirname(__file__))
+    from core.billiard_api import compute_shot          # 腳本模式
+    import gui.visualize as visualize                   # 腳本模式
 
 
 # ──────────────── 工具 ────────────────
@@ -69,9 +78,20 @@ def plan_shot_from_json(
         blk_bs: List[dict] = [b for b in balls if b not in (cue_b, tgt_b)]
 
         # --- cm → m ---
-        cue_xy = cm2m(cue_b["cx_cm"], cue_b["cy_cm"])
-        target = cm2m(tgt_b["cx_cm"], tgt_b["cy_cm"])
-        blocks = [cm2m(b["cx_cm"], b["cy_cm"]) for b in blk_bs]
+        # 支援兩種鍵名：舊版 (cx_cm/cy_cm) 與 新版 (x_cm/y_cm)
+        def get_xy_cm(b: dict):
+            if "cx_cm" in b and "cy_cm" in b:
+                return b["cx_cm"], b["cy_cm"]
+            elif "x_cm" in b and "y_cm" in b:
+                return b["x_cm"], b["y_cm"]
+            else:
+                raise RuntimeError("ball item 缺少座標欄位 (cx_cm/cy_cm 或 x_cm/y_cm)")
+
+        cx, cy = get_xy_cm(cue_b)
+        tx, ty = get_xy_cm(tgt_b)
+        cue_xy = cm2m(cx, cy)
+        target = cm2m(tx, ty)
+        blocks = [cm2m(*get_xy_cm(b)) for b in blk_bs]
 
         # --- 求解 ---
         info = compute_shot(cue_xy, target, blocks)

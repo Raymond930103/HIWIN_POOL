@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Billiard Robot{% endblock %}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sakura.css/css/sakura.css">
+  <style>
+    header { display:flex; justify-content:space-between; align-items:center; }
+    .actions button { margin-right: 8px; }
+    img.render { max-width: 100%; height: auto; border:1px solid #ddd; }
+    .row { display:flex; gap:16px; flex-wrap: wrap; }
+    .card { border:1px solid #ddd; padding:12px; border-radius:8px; }
+  </style>
+  {% block head %}{% endblock %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <header>
+    <h2>Billiard Robot</h2>
+    <nav>
+      <a href="/">遊戲</a> | <a href="/scoreboard">成績</a> | <a href="/auth/logout">登出</a>
+    </nav>
+  </header>
+  <hr>
+  {% block content %}{% endblock %}
+</body>
+</html>

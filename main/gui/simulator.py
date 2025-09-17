@@ -13,7 +13,8 @@ LABEL_FONT  = None   # 18px 系統預設字
 
 
 # ── 視覺參數 ───────────────────────────────────────────
-TABLE = (0.73, 0.375); SCALE=800; MARGIN=20
+# Keep in sync with detection TABLE_W_CM/TABLE_H_CM (yoloball)
+TABLE = (0.735, 0.375); SCALE=800; MARGIN=20
 R_BALL=int(BALL_R*SCALE); R_PK=int(R_BALL*1.6)
 DASH_W=int(2*BALL_R*SCALE)
 
