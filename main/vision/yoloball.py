@@ -19,11 +19,13 @@ from ultralytics import YOLO
 CAM_URL     = 0
 SAVE_DIR    = Path("captures_json"); SAVE_DIR.mkdir(exist_ok=True)
 CONF_THRES  = 0.10
+IOU_THRES   = 0.50
 POCKET_R_PX = 50
 TABLE_W_CM  = 73.5
 TABLE_H_CM  = 37.5
 MIN_SEP_CM  = 1.0
-MODEL_PATH  = "main/vision/best2.pt"
+# Prefer the newer weights if present; fallback to legacy
+MODEL_PATH  = "tools/0918best.pt" if Path("tools/0918best.pt").exists() else "main/vision/best2.pt"
 CLASS_NAMES = ['2','2','2','3','3','14','6','3','3','2','4','3','3','0','1','1']
 CORNER_JSON  = "main/vision/corner.json"
 POCKETS_JSON = "main/vision/pockets.json"   # optional; falls back to computed
@@ -283,16 +285,43 @@ def _detect_and_convert(img: np.ndarray, H: np.ndarray, pockets: list[tuple[floa
         cv2.circle(vis, (int(px), int(py)), POCKET_R_PX, (255, 0, 255), 2)
 
     model = YOLO(MODEL_PATH)
-    r = model.predict(img, imgsz=640, conf=CONF_THRES, verbose=False)[0]
-    dets = sorted(
-        zip(
-            r.boxes.xyxy.cpu().numpy(),
-            r.boxes.cls.cpu().numpy(),
-            r.boxes.conf.cpu().numpy(),
-        ),
-        key=lambda x: float(x[2]),
-        reverse=True,
-    )
+    r = model.predict(
+        img,
+        imgsz=640,
+        conf=CONF_THRES,
+        iou=IOU_THRES,
+        agnostic_nms=True,
+        verbose=False,
+    )[0]
+
+    # Collect detections sorted by confidence (high → low)
+    boxes_xyxy = r.boxes.xyxy.cpu().numpy() if r.boxes is not None else np.empty((0, 4))
+    classes    = r.boxes.cls.cpu().numpy()  if r.boxes is not None else np.empty((0,))
+    confs      = r.boxes.conf.cpu().numpy() if r.boxes is not None else np.empty((0,))
+    order = np.argsort(-confs)
+
+    # Greedy class-agnostic IoU suppression (keep highest-confidence when overlapping)
+    def _iou(a, b):
+        ix1 = max(a[0], b[0]); iy1 = max(a[1], b[1])
+        ix2 = min(a[2], b[2]); iy2 = min(a[3], b[3])
+        iw = max(0.0, ix2 - ix1); ih = max(0.0, iy2 - iy1)
+        inter = iw * ih
+        if inter <= 0.0:
+            return 0.0
+        area_a = max(0.0, (a[2]-a[0])) * max(0.0, (a[3]-a[1]))
+        area_b = max(0.0, (b[2]-b[0])) * max(0.0, (b[3]-b[1]))
+        union = area_a + area_b - inter
+        return inter / union if union > 0 else 0.0
+
+    keep_idx = []
+    for i in order:
+        a = boxes_xyxy[i]
+        if all(_iou(a, boxes_xyxy[j]) <= IOU_THRES for j in keep_idx):
+            keep_idx.append(i)
+    dets = [
+        (boxes_xyxy[i], classes[i], confs[i])
+        for i in keep_idx
+    ]
 
     # 影像→cm 轉換函式
     def px2cm(pt):
@@ -324,15 +353,8 @@ def _detect_and_convert(img: np.ndarray, H: np.ndarray, pockets: list[tuple[floa
         )
         centers.append((cx, cy))
         cv2.rectangle(vis, (x1, y1), (x2, y2), (0, 255, 255), 2)
-        cv2.putText(
-            vis,
-            CLASS_NAMES[int(cls)],
-            (x1, y1 - 6),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            (0, 255, 255),
-            2,
-        )
+        label = f"{CLASS_NAMES[int(cls)]} {float(cf):.2f}"
+        cv2.putText(vis, label, (x1, max(12, y1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
     return {"timestamp": time.strftime("%Y%m%d_%H%M%S"), "balls": balls}, vis
 

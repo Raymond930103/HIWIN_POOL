@@ -21,14 +21,14 @@ Color = Tuple[int, int, int]
 @dataclass
 class PygameUIConfig:
     # Feature toggles
-    SHOW_SOLID_LINES: bool = False            # red/yellow solid lines
+    SHOW_SOLID_LINES: bool = True            # red/yellow solid lines
     SHOW_DASHED_GUIDES: bool = False          # gray dashed guide segments
-    SHOW_POCKETS: bool = False               # draw pocket circles
+    SHOW_POCKETS: bool = True               # draw pocket circles
     SHOW_GRID: bool = True                  # draw metric grid/labels (simulator/visualizer/webapp)
 
     # Highlighting
     HIGHLIGHT_TARGET_ON_PLAN: bool = False   # change target ball color if a plan exists
-    TARGET_AS_NORMAL: bool = True          # force target ball to use normal ball color
+    TARGET_AS_NORMAL: bool = False          # force target ball to use normal ball color
 
     # Colors
     COLOR_TABLE: Color = (18, 95, 29)
