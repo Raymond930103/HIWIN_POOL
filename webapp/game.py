@@ -9,7 +9,7 @@ from flask_login import login_required, current_user
 from .config import Config
 from .database import db
 from .models import Game, Shot, User
-from .robot import capture_and_plan, compute_arm_payload, send_to_robot
+from .robot import capture_and_plan, compute_arm_payload, send_to_robot, perform_handshaked_strike
 from .render import render_image
 from .camera import camera_streamer
 
@@ -207,7 +207,7 @@ def strike():
     if _current_turn(game) != "robot":
         return jsonify({"error": "not robot turn"}), 400
 
-    balls_data, result = capture_and_plan(target="min", intrinsics_path=Config.INTRINSICS_PATH)
+    # Follow robot server protocol: connect→wait MOVING→capture→send→wait DONE
     step = (game.shots[-1].step_number + 1) if game.shots else 1
     # Save under Flask static folder and return URL under /static
     image_dir = Path(current_app.static_folder) / "renders"
@@ -216,11 +216,21 @@ def strike():
     cue_xy = None
     payload = None
     sent = False
-    if result is not None:
-        angle_deg, cue_xy = result
-        payload = compute_arm_payload(angle_deg, cue_xy)
-        if Config.SEND_TO_ROBOT:
-            sent = send_to_robot(payload)
+    reply = None
+    if Config.SEND_TO_ROBOT:
+        # Perform the full handshake session which also captures and plans
+        balls_data, result, payload, reply = perform_handshaked_strike(
+            target="min", intrinsics_path=Config.INTRINSICS_PATH
+        )
+        sent = payload is not None
+        if result is not None:
+            angle_deg, cue_xy = result
+    else:
+        # Compute-only path without robot I/O
+        balls_data, result = capture_and_plan(target="min", intrinsics_path=Config.INTRINSICS_PATH)
+        if result is not None:
+            angle_deg, cue_xy = result
+            payload = compute_arm_payload(angle_deg, cue_xy)
 
     # Build visualization image when possible
     balls = balls_data.get("balls", [])
@@ -279,6 +289,7 @@ def strike():
         "cue_xy": cue_xy,
         "payload": payload,
         "sent": sent,
+        "reply": reply,
         "game_status": game.status,
         "next_turn": _current_turn(game),
     })

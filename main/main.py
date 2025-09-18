@@ -1,85 +1,78 @@
 from vision.yoloball import capture_balls
 from communicate.tcp import create_connection, send_message, receive_message
-import socket
 from configs.setting import HOST, PORT
 from run_shot import plan_shot_from_json
 
 import time
-import math 
 
-j6_diff = 4
+
+def compute_payload_from_latest_json(json_path: str):
+    result = plan_shot_from_json(json_path, 'min', show=False)
+    if result is None:
+        return None
+    angle, cue_xy = result
+    arm_angle = -angle
+    arm_x = round(cue_xy[0] * 1000, 2)
+    arm_y = round(375 - cue_xy[1] * 1000, 2)
+    return f"{arm_angle:.2f}, {arm_x:.2f}, {arm_y:.2f}", result
 
 
 if __name__ == "__main__":
-    CORD_JSON = "/Users/caiminhan/Projects/HIWIN_MAIN/captures_json/cords.json"
-
-    dots = 0          # loading 點數
-    sock = None
+    INTRINSICS = "/Users/caiminhan/Projects/HIWIN_MAIN/main/vision/intrinsics.yaml"
     while True:
-        # ----------- 確保連線 -----------
+        # 1) Connect to robot server
+        sock = create_connection(HOST, PORT)
         if sock is None:
-            sock = create_connection(HOST, PORT)
-            if sock is None:                  # 建立失敗，5 秒後重試
-                time.sleep(5)
-                continue
-            sock.settimeout(2)                # 2 秒沒資料就丟 socket.timeout
+            print("無法建立連線，5 秒後重試。")
+            time.sleep(5)
+            continue
+        print("已連線，等待 CONNECTED/MOVING 訊息…")
 
-        # ----------- 嘗試收訊息 -----------
+        # 2) Expect CONNECTED then MOVING
         try:
-            msg = receive_message(sock)
-            if msg is None:                   # 沒資料 → 顯示 loading
-                loading = "." * dots
-                print(f"\r等待中{loading:<3}", end="", flush=True)
-                dots = (dots + 1) % 4
-                continue
+            # Block until CONNECTED/MOVING
+            while True:
+                msg = receive_message(sock)
+                if msg is None:
+                    raise RuntimeError("連線已關閉")
+                print(f"收到伺服器訊息：{msg}")
+                if msg == "CONNECTED":
+                    continue
+                if msg == "MOVING":
+                    break
 
-            print(f"\n收到伺服器訊息：{msg}")   # 有資料就換行顯示
-
-            # ----------- 指令判斷 -----------
-            if msg == "MOVING":
-                print("開始拍攝")
-                capture_balls(wait_sec=3, show=False, intrinsics_path="/Users/caiminhan/Projects/HIWIN_MAIN/main/vision/intrinsics.yaml")
-                result = plan_shot_from_json(CORD_JSON, 'min', show=False)
-                
-                if result is None:
-                    send_message(sock, "200") # 無法計算路徑
-                else:
-                    send_message(sock, "100") # 成功計算路徑
-                    angle, cue_xy = result
-                    print(f"計算結果：{angle:.2f}°，{cue_xy}")
-                    arm_angle = -angle                       # 依你原本邏輯
-                    arm_x = round(cue_xy[0] * 1000, 2)       # m → mm
-                    arm_y = round(375 - cue_xy[1] * 1000, 2) # 底邊座標換算
-                    '''
-                    dx = j6_diff * math.cos(math.radians(arm_angle))
-                    dy = j6_diff * math.sin(math.radians(arm_angle))
-                    
-                    arm_x += dx
-                    arm_y += dy
-                    '''
-                    payload = f"{arm_angle:.2f}, {arm_x:.2f}, {arm_y:.2f}"
-                    send_message(sock, payload)
-                    
-            elif msg == "EXIT":                          # 伺服器要求關閉
-                print("伺服器結束連線，5 秒後嘗試重新連線")
-                sock.close()
-                sock = None
-                time.sleep(5)
-
+            # 3) Capture and compute once MOVING arrives
+            print("開始拍攝與計算…")
+            json_path, _ = capture_balls(wait_sec=3, show=False, intrinsics_path=INTRINSICS)
+            payload_and_result = compute_payload_from_latest_json(json_path) if json_path else None
+            if payload_and_result is not None:
+                payload, (angle, cue_xy) = payload_and_result
+                print(f"計算結果：{angle:.2f}°，{cue_xy}")
             else:
-                # 其他訊息可在這裡加 elif 處理
-                pass
+                payload = "0.00, 0.00, 0.00"  # fallback
+                print("無法計算路徑，改用預設 (0,0,0)")
 
-        # ----------- 例外處理 -----------
-        except socket.timeout:
-            # 超時等同沒資料，做 loading 動畫
-            loading = "." * dots
-            print(f"\r等待中{loading:<3}", end="", flush=True)
-            dots = (dots + 1) % 4
+            # 4) Send '100' then coordinates
+            send_message(sock, "100")
+            send_message(sock, payload)
+            print(f"已送出座標：{payload}")
+
+            # 5) Wait for DONE then loop (server will close connection)
+            while True:
+                msg = receive_message(sock)
+                if msg is None:
+                    print("連線關閉，重新連線中…")
+                    break
+                print(f"收到伺服器訊息：{msg}")
+                if msg == "DONE":
+                    print("動作完成，關閉連線並重新開始…")
+                    break
 
         except Exception as e:
-            print(f"\n連線異常：{e}，5 秒後重試")
-            if sock:
+            print(f"連線或通訊異常：{e}")
+        finally:
+            try:
                 sock.close()
-            sock = None
-            time.sleep(5)
+            except Exception:
+                pass
+            time.sleep(3)
