@@ -1,0 +1,7 @@
+flask>=3.0.0
+flask_sqlalchemy>=3.1.1
+flask_login>=0.6.3
+pygame>=2.5.2
+ultralytics>=8.2.0
+opencv-python>=4.9.0.80
+numpy>=1.24.0

@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% block title %}成績 - Billiard Robot{% endblock %}
+{% block content %}
+<h3>成績與排行榜</h3>
+<div class="row">
+  <div class="card" style="flex:1; min-width: 320px;">
+    <h4>我的每局進度</h4>
+    <canvas id="lineChart"></canvas>
+  </div>
+  <div class="card" style="flex:1; min-width: 320px;">
+    <h4>排行榜</h4>
+    <table id="board"></table>
+  </div>
+  <div class="card" style="flex:1; min-width: 320px;">
+    <h4>總覽</h4>
+    <div id="totals"></div>
+  </div>
+  
+</div>
+
+<script>
+async function loadStats() {
+  const me = await fetch('/api/stats/me').then(r=>r.json());
+  const lb = await fetch('/api/leaderboard').then(r=>r.json());
+
+  // Build line chart of balls remaining per step for each game
+  const ctx = document.getElementById('lineChart').getContext('2d');
+  const datasets = me.series.map((s, idx) => ({
+    label: 'Game ' + s.game_id,
+    data: s.points.map(p=>({x:p.x,y:p.y})),
+    borderColor: `hsl(${(idx*47)%360},70%,50%)`,
+    fill: false,
+  }));
+  new Chart(ctx, { type: 'line', data: { datasets }, options: { scales: { x: { type:'linear', title:{display:true,text:'Step'} }, y: { title:{display:true,text:'Balls Remaining'} } } } });
+
+  // Totals
+  document.getElementById('totals').innerText = `總遊戲: ${me.totals.games}，總步驟: ${me.totals.shots}`;
+
+  // Leaderboard
+  const t = document.getElementById('board');
+  t.innerHTML = '<tr><th>玩家</th><th>遊戲數</th><th>步驟數</th></tr>' + lb.leaderboard.map(r=>`<tr><td>${r.user}</td><td>${r.games}</td><td>${r.shots}</td></tr>`).join('');
+}
+loadStats();
+</script>
+{% endblock %}
+

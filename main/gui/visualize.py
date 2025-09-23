@@ -11,6 +11,7 @@
 import argparse, numpy as np, pygame
 from core.billiard_api import compute_shot
 import gui.simulator as sim   # 所有視覺常數 / 函式
+from main.configs.pygame_config import CONFIG as PGCFG
 
 # ──────────────────────────────────────────────────────────────
 # Internal: 單純把顯示流程包成函式，讓 CLI 與 show() 共用
@@ -49,16 +50,24 @@ def _render(cue, target, blockers, info):
                          (sim.MARGIN, sim.MARGIN,
                           w*sim.SCALE, h*sim.SCALE))
         # --- 網格線 + 座標 ---
-        sim.draw_grid(scr, w, h)
+        if PGCFG.SHOW_GRID:
+            sim.draw_grid(scr, w, h)
 
         # --- 袋口 ---
-        for pk in pkts:
-            pygame.draw.circle(scr, sim.PKCOL, sim.px(pk), sim.R_PK)
+        if PGCFG.SHOW_POCKETS:
+            for pk in pkts:
+                pygame.draw.circle(scr, sim.PKCOL, sim.px(pk), sim.R_PK)
 
         # --- 球 ---
         draw_ball = lambda p,c: pygame.draw.circle(scr, c, sim.px(p), sim.R_BALL)
         draw_ball(cue,    sim.CUE)
-        draw_ball(target, sim.TARGET)
+        if PGCFG.TARGET_AS_NORMAL:
+            tgt_col = sim.OTH
+        elif PGCFG.HIGHLIGHT_TARGET_ON_PLAN and info:
+            tgt_col = PGCFG.COLOR_TARGET_HIGHLIGHT
+        else:
+            tgt_col = sim.TARGET
+        draw_ball(target, tgt_col)
         for b in blockers:
             draw_ball(b, sim.OTH)
 
@@ -67,18 +76,24 @@ def _render(cue, target, blockers, info):
             G  = np.array(info["ghost"])
             PK = pkts[info["pocket_id"]]
             if info["type"] == "direct":
-                sim.dashed(scr, sim.DASH, cue, G, sim.DASH_W)
-                pygame.draw.line(scr, sim.LINE1, sim.px(cue), sim.px(G), 2)
+                if PGCFG.SHOW_DASHED_GUIDES:
+                    sim.dashed(scr, sim.DASH, cue, G, sim.DASH_W)
+                if PGCFG.SHOW_SOLID_LINES:
+                    pygame.draw.line(scr, sim.LINE1, sim.px(cue), sim.px(G), 2)
             else:
                 R = np.array(info["rail_pt"])
-                sim.dashed(scr, sim.DASH, cue, R, sim.DASH_W)
-                sim.dashed(scr, sim.DASH, R, G, sim.DASH_W)
-                pygame.draw.line(scr, sim.LINE1, sim.px(cue), sim.px(R), 2)
-                pygame.draw.line(scr, sim.LINE1, sim.px(R), sim.px(G), 2)
+                if PGCFG.SHOW_DASHED_GUIDES:
+                    sim.dashed(scr, sim.DASH, cue, R, sim.DASH_W)
+                    sim.dashed(scr, sim.DASH, R, G, sim.DASH_W)
+                if PGCFG.SHOW_SOLID_LINES:
+                    pygame.draw.line(scr, sim.LINE1, sim.px(cue), sim.px(R), 2)
+                    pygame.draw.line(scr, sim.LINE1, sim.px(R), sim.px(G), 2)
 
-            sim.dashed(scr, sim.DASH, target, PK, sim.DASH_W)
-            pygame.draw.line(scr, sim.LINE2, sim.px(G), sim.px(target), 2)
-            pygame.draw.line(scr, sim.LINE2, sim.px(target), sim.px(PK), 2)
+            if PGCFG.SHOW_DASHED_GUIDES:
+                sim.dashed(scr, sim.DASH, target, PK, sim.DASH_W)
+            if PGCFG.SHOW_SOLID_LINES:
+                pygame.draw.line(scr, sim.LINE2, sim.px(G), sim.px(target), 2)
+                pygame.draw.line(scr, sim.LINE2, sim.px(target), sim.px(PK), 2)
         else:
             txt = font.render("NO  PATH", True, (255,0,0))
             rect = txt.get_rect(center=(scr.get_width()/2, scr.get_height()/2))
@@ -115,11 +130,18 @@ if __name__ == "__main__":
     ap.add_argument("--cue",    nargs=2, type=float, required=True)
     ap.add_argument("--target", nargs=2, type=float, required=True)
     ap.add_argument("--blockers", nargs="*", type=float, default=[])
+    ap.add_argument("--target-as-normal", action="store_true", help="Render target ball using normal ball color")
+    ap.add_argument("--no-highlight", action="store_true", help="Disable target highlight when plan exists")
     args = ap.parse_args()
 
     cue      = tuple(args.cue)
     target   = tuple(args.target)
     blockers = list(zip(args.blockers[::2], args.blockers[1::2]))
+
+    if args.target_as_normal:
+        PGCFG.TARGET_AS_NORMAL = True
+    if args.no_highlight:
+        PGCFG.HIGHLIGHT_TARGET_ON_PLAN = False
 
     info = compute_shot(cue, target, blockers)
     print("compute_shot ⇒", info)

@@ -2,6 +2,7 @@ import pygame, numpy as np
 from core.ball_generator import generate_layout
 from core.billiard_api  import compute_shot
 from core.solver_core   import BALL_R
+from main.configs.pygame_config import CONFIG as PGCFG
 
 # --- 新增 ---
 GRID_STEP  = 0.05            # m
@@ -13,13 +14,22 @@ LABEL_FONT  = None   # 18px 系統預設字
 
 
 # ── 視覺參數 ───────────────────────────────────────────
-TABLE = (0.73, 0.375); SCALE=800; MARGIN=20
+# Keep in sync with detection TABLE_W_CM/TABLE_H_CM (yoloball)
+TABLE = (0.735, 0.375); SCALE=800; MARGIN=20
 R_BALL=int(BALL_R*SCALE); R_PK=int(R_BALL*1.6)
 DASH_W=int(2*BALL_R*SCALE)
 
-GREEN=(18,95,29); RAIL=(60,30,10); PKCOL=(25,12,4)
-CUE=(245,245,245); TARGET=(255,90,40); OTH=(40,120,255)
-LINE1=(250,0,0); LINE2=(255,255,0); DASH=(185,185,185)
+# Colors from config for backward-compat constants used elsewhere
+GREEN = PGCFG.COLOR_TABLE
+RAIL  = PGCFG.COLOR_RAIL
+PKCOL = PGCFG.COLOR_POCKET
+CUE   = PGCFG.COLOR_CUE_BALL
+TARGET= PGCFG.COLOR_TARGET_BALL
+OTH   = PGCFG.COLOR_OTHER_BALLS
+LINE1 = PGCFG.COLOR_LINE_PRIMARY
+LINE2 = PGCFG.COLOR_LINE_SECONDARY
+DASH  = PGCFG.COLOR_DASHED
+
 px=lambda p:(int(p[0]*SCALE+MARGIN),int(p[1]*SCALE+MARGIN))
 
 def dashed(surf,col,a,b,w,dash=10,gap=6):
@@ -89,28 +99,44 @@ def main():
 
         scr.fill(RAIL)
         pygame.draw.rect(scr,GREEN,(MARGIN,MARGIN,w*SCALE,h*SCALE))
-        draw_grid(scr, w, h)
-        for pk in pockets: pygame.draw.circle(scr,PKCOL,px(pk),R_PK)
+        if PGCFG.SHOW_GRID:
+            draw_grid(scr, w, h)
+        if PGCFG.SHOW_POCKETS:
+            for pk in pockets:
+                pygame.draw.circle(scr,PKCOL,px(pk),R_PK)
 
         draw=lambda p,c:pygame.draw.circle(scr,c,px(p),R_BALL)
-        draw(cue,CUE); draw(tgt,TARGET); [draw(b,OTH) for b in blks]
+        # decide target color priority: force-normal > highlight > distinct
+        if PGCFG.TARGET_AS_NORMAL:
+            tgt_col = OTH
+        elif PGCFG.HIGHLIGHT_TARGET_ON_PLAN and plan:
+            tgt_col = PGCFG.COLOR_TARGET_HIGHLIGHT
+        else:
+            tgt_col = TARGET
+        draw(cue,CUE); draw(tgt,tgt_col); [draw(b,OTH) for b in blks]
 
         if plan:
             G=np.array(plan['ghost'])
             PK=pockets[plan['pocket_id']]
             if plan['type']=='direct':
-                dashed(scr,DASH,cue,G,DASH_W)
-                pygame.draw.line(scr,LINE1,px(cue),px(G),2)
+                if PGCFG.SHOW_DASHED_GUIDES:
+                    dashed(scr,DASH,cue,G,DASH_W)
+                if PGCFG.SHOW_SOLID_LINES:
+                    pygame.draw.line(scr,LINE1,px(cue),px(G),2)
             else:
                 R=np.array(plan['rail_pt'])
-                dashed(scr,DASH,cue,R,DASH_W)
-                dashed(scr,DASH,R,G,DASH_W)
-                pygame.draw.line(scr,LINE1,px(cue),px(R),2)
-                pygame.draw.line(scr,LINE1,px(R),px(G),2)
+                if PGCFG.SHOW_DASHED_GUIDES:
+                    dashed(scr,DASH,cue,R,DASH_W)
+                    dashed(scr,DASH,R,G,DASH_W)
+                if PGCFG.SHOW_SOLID_LINES:
+                    pygame.draw.line(scr,LINE1,px(cue),px(R),2)
+                    pygame.draw.line(scr,LINE1,px(R),px(G),2)
 
-            dashed(scr,DASH,tgt,PK,DASH_W)
-            pygame.draw.line(scr,LINE2,px(G),px(tgt),2)
-            pygame.draw.line(scr,LINE2,px(tgt),px(PK),2)
+            if PGCFG.SHOW_DASHED_GUIDES:
+                dashed(scr,DASH,tgt,PK,DASH_W)
+            if PGCFG.SHOW_SOLID_LINES:
+                pygame.draw.line(scr,LINE2,px(G),px(tgt),2)
+                pygame.draw.line(scr,LINE2,px(tgt),px(PK),2)
 
         pygame.display.flip(); clock.tick(60)
     pygame.quit()

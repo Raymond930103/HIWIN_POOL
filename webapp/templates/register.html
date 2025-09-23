@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}註冊 - Billiard Robot{% endblock %}
+{% block content %}
+<h3>註冊</h3>
+<form method="post">
+  <label>帳號 <input name="username" required></label><br>
+  <label>Email <input name="email"></label><br>
+  <label>密碼 <input type="password" name="password" required></label><br>
+  <button type="submit">建立帳號</button>
+  <a href="/auth/login">已有帳號？登入</a>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <ul>
+        {% for category, message in messages %}
+          <li>{{ message }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  {% endwith %}
+</form>
+{% endblock %}
+

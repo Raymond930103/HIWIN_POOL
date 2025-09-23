@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}相機 - Billiard Robot{% endblock %}
+{% block content %}
+<h3>即時相機畫面</h3>
+<div class="card">
+  <img id="liveCam" src="{{ url_for('game.video_feed') }}" style="max-width:100%; border:1px solid #ddd;" alt="Live camera feed" />
+  <p style="color:#666; font-size: 0.9em;">若沒有影像，請確認攝影機是否已連接，且未被其他程式佔用。</p>
+  <p style="color:#666; font-size: 0.9em;">注意：進行拍攝/規劃時，可能需要關閉此預覽以避免攝影機資源衝突。</p>
+{% endblock %}
+

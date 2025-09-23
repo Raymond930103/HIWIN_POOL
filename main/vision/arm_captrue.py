@@ -1,6 +1,7 @@
 
 from ..vision.capture import get_next_filename, capture
 from ..communicate.tcp_communicate import connect
+from ..configs.setting import HOST, PORT
 import os
 
 save_folder = "captured_images"
@@ -11,7 +12,7 @@ get_next_filename(save_folder)
 def arm_capture():
     cap_command = '100'
     while cap_command != "103":
-        output = connect(cap_command)
+        output = connect(HOST, PORT, cap_command)
         if output is None:  # 連線失敗則退出
             break
         else:

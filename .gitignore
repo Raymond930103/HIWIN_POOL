@@ -64,6 +64,8 @@ db.sqlite3-journal
 # Flask stuff:
 instance/
 .webassets-cache
+webapp/app.db
+webapp/static/renders/
 
 # Scrapy stuff:
 .scrapy
@@ -179,3 +181,4 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+captures_json/cords.json
