@@ -9,8 +9,16 @@
    這樣就不會因為 argparse 卡住。
 """
 import argparse, numpy as np, pygame
-from core.billiard_api import compute_shot
-import gui.simulator as sim   # 所有視覺常數 / 函式
+# Prefer relative imports when available
+try:
+    from ..core.billiard_api import compute_shot
+    from . import simulator as sim   # 所有視覺常數 / 函式
+except Exception:
+    # Fallback for direct script execution
+    import os, sys
+    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+    from core.billiard_api import compute_shot
+    import gui.simulator as sim
 from main.configs.pygame_config import CONFIG as PGCFG
 
 # ──────────────────────────────────────────────────────────────

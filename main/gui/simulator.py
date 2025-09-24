@@ -1,8 +1,18 @@
 import pygame, numpy as np
-from core.ball_generator import generate_layout
-from core.billiard_api  import compute_shot
-from core.solver_core   import BALL_R
+# Support package import (main.gui.simulator) and script import
+try:
+    from ..core.ball_generator import generate_layout
+    from ..core.billiard_api import compute_shot
+    from ..core.solver_core import BALL_R
+except Exception:
+    # Fallback for direct script execution
+    import os, sys
+    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+    from core.ball_generator import generate_layout
+    from core.billiard_api import compute_shot
+    from core.solver_core import BALL_R
 from main.configs.pygame_config import CONFIG as PGCFG
+from main.configs.table import TABLE_M as TABLE
 
 # --- 新增 ---
 GRID_STEP  = 0.05            # m
@@ -14,8 +24,8 @@ LABEL_FONT  = None   # 18px 系統預設字
 
 
 # ── 視覺參數 ───────────────────────────────────────────
-# Keep in sync with detection TABLE_W_CM/TABLE_H_CM (yoloball)
-TABLE = (0.735, 0.375); SCALE=800; MARGIN=20
+# Keep SCALE/MARGIN local to visualization; TABLE from shared config (meters)
+SCALE=800; MARGIN=20
 R_BALL=int(BALL_R*SCALE); R_PK=int(R_BALL*1.6)
 DASH_W=int(2*BALL_R*SCALE)
 

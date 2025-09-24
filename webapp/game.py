@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from flask import Blueprint, render_template, request, jsonify, url_for, current_app
+import re
 from flask_login import login_required, current_user
 
 from .config import Config
@@ -21,6 +22,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from main.core.billiard_api import compute_shot
+from main.run_shot import get_last_plan_shot_error
 
 
 game_bp = Blueprint("game", __name__)
@@ -68,8 +70,22 @@ def camera_release():
         return jsonify({"released": False, "error": str(e)}), 500
 
 
+def _type_id(b: dict) -> Optional[int]:
+    t = b.get("type")
+    if t is None:
+        return None
+    s = str(t)
+    m = re.search(r"\d+", s)
+    if not m:
+        return None
+    try:
+        return int(m.group(0))
+    except Exception:
+        return None
+
+
 def _balls_remaining(balls: list) -> int:
-    return sum(1 for b in balls if b.get("type") and b.get("type") != "0")
+    return sum(1 for b in balls if (tid := _type_id(b)) is not None and tid != 0)
 
 
 def _current_turn(game: Game) -> str:
@@ -122,6 +138,7 @@ def capture_only():
         return jsonify({"error": "not human turn"}), 400
 
     balls_data, result = capture_and_plan(target="min", intrinsics_path=Config.INTRINSICS_PATH)
+    plan_error = None if result is not None else get_last_plan_shot_error()
 
     # Prepare shot record
     step = (game.shots[-1].step_number + 1) if game.shots else 1
@@ -133,10 +150,10 @@ def capture_only():
     cue = cue_xy if cue_xy else (0.1, 0.1)
     # pick target: smallest non-zero id
     balls = balls_data.get("balls", [])
-    nonzeros = [b for b in balls if b.get("type") != "0"]
+    nonzeros = [b for b in balls if (tid := _type_id(b)) is not None and tid != 0]
     target_b = None
     if nonzeros:
-        target_b = min(nonzeros, key=lambda b: int(b.get("type", 99)))
+        target_b = min(nonzeros, key=lambda b: (_type_id(b) if _type_id(b) is not None else 99))
 
     def _get_xy(b):
         x = b.get("cx_cm", b.get("x_cm"))
@@ -145,7 +162,7 @@ def capture_only():
 
     if target_b and any(k in target_b for k in ("cx_cm", "x_cm")):
         target = _get_xy(target_b)
-        blockers = [_get_xy(b) for b in balls if b not in (target_b,) and b.get("type") != "0"]
+        blockers = [_get_xy(b) for b in balls if b not in (target_b,) and (_type_id(b) or 0) != 0]
         # Compute shot info for visualization
         info = compute_shot(cue, target, blockers)
         # Build labels: show YOLO ball numbers at their detected coords
@@ -191,6 +208,7 @@ def capture_only():
         "image_path": rel_img,
         "angle_deg": angle_deg,
         "cue_xy": cue_xy,
+        "plan_error": plan_error,
         "next_turn": _current_turn(game),
     })
 
@@ -231,18 +249,19 @@ def strike():
         if result is not None:
             angle_deg, cue_xy = result
             payload = compute_arm_payload(angle_deg, cue_xy)
+    plan_error = None if result is not None else get_last_plan_shot_error()
 
     # Build visualization image when possible
     balls = balls_data.get("balls", [])
-    cue_b = next((b for b in balls if b.get("type") == "0"), None)
-    nonzeros = [b for b in balls if b.get("type") != "0"]
+    cue_b = next((b for b in balls if _type_id(b) == 0), None)
+    nonzeros = [b for b in balls if (tid := _type_id(b)) is not None and tid != 0]
     def _get_xy(b):
         x = b.get("cx_cm", b.get("x_cm"))
         y = b.get("cy_cm", b.get("y_cm"))
         return x / 100.0, y / 100.0
     if cue_b and nonzeros:
         cue = _get_xy(cue_b)
-        target_b = min(nonzeros, key=lambda b: int(b.get("type", 99)))
+        target_b = min(nonzeros, key=lambda b: (_type_id(b) if _type_id(b) is not None else 99))
         target = _get_xy(target_b)
         blockers = [_get_xy(b) for b in balls if b not in (cue_b, target_b)]
         info = compute_shot(cue, target, blockers)
@@ -290,6 +309,7 @@ def strike():
         "payload": payload,
         "sent": sent,
         "reply": reply,
+        "plan_error": plan_error,
         "game_status": game.status,
         "next_turn": _current_turn(game),
     })

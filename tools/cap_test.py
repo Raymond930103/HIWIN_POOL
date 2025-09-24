@@ -7,7 +7,7 @@ from ultralytics import YOLO
 JSON_CORNERS = "main/vision/corner.json"   # 4 角座標
 MODEL_PATH   = "main/vision/best2.pt"      # YOLO 權重
 CAM_URL      = 0                           # 攝影機 ID / rtsp
-CLASS_NAMES  = ['8','10','2','15','7','14','6','13','5','12','4','11','3','0','1','9']
+CLASS_NAMES  = ['0','1','10','11','12','13','14','15','2','3','4','5','6','7','8','9']
 SCALE_PX_PER_CM = 22.11                    # 1 cm ≈ 22.11 px
 CONF_THRES   = 0.25                        # YOLO 閾值
 SAVE_DIR     = Path("main/vision/captured_json")       # JSON 目錄

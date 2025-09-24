@@ -11,9 +11,11 @@ YOLO 撞球偵測（Base = 球桌左上角）
 from __future__ import annotations
 
 import cv2, json, time, yaml, numpy as np
+import re
 from pathlib import Path
 from typing import Tuple, List, Optional
 from ultralytics import YOLO
+from main.configs.table import TABLE_W_CM, TABLE_H_CM
 
 # === 參數 ===
 CAM_URL     = 0
@@ -21,12 +23,26 @@ SAVE_DIR    = Path("captures_json"); SAVE_DIR.mkdir(exist_ok=True)
 CONF_THRES  = 0.10
 IOU_THRES   = 0.50
 POCKET_R_PX = 50
-TABLE_W_CM  = 73.5
-TABLE_H_CM  = 37.5
+# table dimensions now sourced from main.configs.table
 MIN_SEP_CM  = 1.0
-# Prefer the newer weights if present; fallback to legacy
-MODEL_PATH  = "tools/0918best.pt" if Path("tools/0918best.pt").exists() else "main/vision/best2.pt"
-CLASS_NAMES = ['2','2','2','3','3','14','6','3','3','2','4','3','3','0','1','1']
+# Prefer tested weights; gracefully fall back if missing
+def _pick_model_path() -> str:
+    candidates = [
+        "tools/best.pt",          # commonly used in tools/live_cam_0918.py
+        "tools/0918best.pt",      # alternate naming
+        "main/vision/best.pt",    # legacy location
+        "best.pt",                # project root fallback
+    ]
+    for p in candidates:
+        if Path(p).exists():
+            return p
+    # last resort
+    return "main/vision/best.pt"
+
+MODEL_PATH  = _pick_model_path()
+
+# Default mapping (fallback only). Will be overridden by model.names if available.
+CLASS_NAMES = ['0','1','2','3','4','5','6','7','8','9','10','11','12','13','14','15']
 CORNER_JSON  = "main/vision/corner.json"
 POCKETS_JSON = "main/vision/pockets.json"   # optional; falls back to computed
 POCKET_JSON  = "main/vision/pocket.json"    # legacy singular filename support
@@ -269,6 +285,16 @@ def _detect_and_convert(img: np.ndarray, H: np.ndarray, pockets: list[tuple[floa
     px_corners = cv2.perspectiveTransform(cm_corners.reshape(-1, 1, 2), H_inv).reshape(-1, 2)
     tl, tr, br, bl = px_corners
 
+    # Sanity: report approximate px-per-cm along width/height
+    table_px_w = float(np.linalg.norm(tr - tl))
+    table_px_h = float(np.linalg.norm(bl - tl))
+    px_per_cm_w = table_px_w / float(TABLE_W_CM) if TABLE_W_CM > 0 else float('nan')
+    px_per_cm_h = table_px_h / float(TABLE_H_CM) if TABLE_H_CM > 0 else float('nan')
+    anisotropy = px_per_cm_w / px_per_cm_h if px_per_cm_h > 0 else float('inf')
+    print(f"[H] px/cm ≈ (w {px_per_cm_w:.2f}, h {px_per_cm_h:.2f}); table span ≈ {table_px_w:.0f}×{table_px_h:.0f} px")
+    if anisotropy > 2.5 or anisotropy < 0.4:
+        print(f"[WARN] Homography scale anisotropy seems high (w/h ≈ {anisotropy:.2f}). Check corners/pockets/intrinsics.")
+
     # pockets: use provided (already undistorted if needed), else 4角+上下中點
     if pockets is None:
         pockets = [
@@ -285,6 +311,44 @@ def _detect_and_convert(img: np.ndarray, H: np.ndarray, pockets: list[tuple[floa
         cv2.circle(vis, (int(px), int(py)), POCKET_R_PX, (255, 0, 255), 2)
 
     model = YOLO(MODEL_PATH)
+    # Resolve class names from the model if available, else keep fallback
+    try:
+        names = getattr(model, 'names', None)
+        # Helper: normalize a class label to plain digits when possible
+        def _normalize_label(x: str) -> str:
+            s = str(x).strip().lower()
+            # common synonyms for cue ball
+            if s in {"cue", "cue_ball", "cueball", "white", "white_ball"}:
+                return "0"
+            m = re.search(r"\d+", s)
+            if m:
+                # strip leading zeros
+                try:
+                    return str(int(m.group(0)))
+                except Exception:
+                    return m.group(0)
+            return s
+        if isinstance(names, dict):
+            # dict: id -> name
+            max_id = max(names.keys()) if names else -1
+            mapped = [None] * (max_id + 1)
+            for k, v in names.items():
+                mapped[int(k)] = str(v)
+            # if all entries exist, use it
+            if all(isinstance(x, str) and x for x in mapped):
+                # normalize names like 'ball_12' → '12'
+                CLASS_MAP = [_normalize_label(x) for x in mapped]
+                class_name = lambda cid: CLASS_MAP[cid] if 0 <= cid < len(CLASS_MAP) else str(cid)
+            else:
+                class_name = lambda cid: CLASS_NAMES[cid] if 0 <= cid < len(CLASS_NAMES) else str(cid)
+        elif isinstance(names, (list, tuple)) and len(names) > 0:
+            mapped = [str(x) for x in names]
+            CLASS_MAP = [_normalize_label(x) for x in mapped]
+            class_name = lambda cid: CLASS_MAP[cid] if 0 <= cid < len(CLASS_MAP) else str(cid)
+        else:
+            class_name = lambda cid: CLASS_NAMES[cid] if 0 <= cid < len(CLASS_NAMES) else str(cid)
+    except Exception:
+        class_name = lambda cid: CLASS_NAMES[cid] if 0 <= cid < len(CLASS_NAMES) else str(cid)
     r = model.predict(
         img,
         imgsz=640,
@@ -330,22 +394,23 @@ def _detect_and_convert(img: np.ndarray, H: np.ndarray, pockets: list[tuple[floa
         return v[0] / v[2], v[1] / v[2]
 
     # px_per_cm for min‑sep
-    table_px_w = np.linalg.norm(tr - tl)
-    table_px_h = np.linalg.norm(bl - tl)
     min_sep_px = MIN_SEP_CM * (table_px_w / TABLE_W_CM + table_px_h / TABLE_H_CM) / 2
 
     balls, centers = [], []
     for box, cls, cf in dets:
         x1, y1, x2, y2 = map(int, box)
         cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
-        if any((cx - px) ** 2 + (cy - py) ** 2 <= POCKET_R_PX ** 2 for px, py in pockets):
-            continue
+        name = class_name(int(cls))
+        # Skip pocket-center suppression for cue ball (type '0') to avoid false drops
+        if name != '0':
+            if any((cx - px) ** 2 + (cy - py) ** 2 <= POCKET_R_PX ** 2 for px, py in pockets):
+                continue
         if any((cx - x0) ** 2 + (cy - y0) ** 2 < min_sep_px ** 2 for x0, y0 in centers):
             continue
         x_cm, y_cm = px2cm((cx, cy))
         balls.append(
             {
-                "type": CLASS_NAMES[int(cls)],
+                "type": name,
                 "conf": round(float(cf), 3),
                 "x_cm": round(x_cm, 2),
                 "y_cm": round(y_cm, 2),
@@ -353,7 +418,7 @@ def _detect_and_convert(img: np.ndarray, H: np.ndarray, pockets: list[tuple[floa
         )
         centers.append((cx, cy))
         cv2.rectangle(vis, (x1, y1), (x2, y2), (0, 255, 255), 2)
-        label = f"{CLASS_NAMES[int(cls)]} {float(cf):.2f}"
+        label = f"{name} {float(cf):.2f}"
         cv2.putText(vis, label, (x1, max(12, y1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
     return {"timestamp": time.strftime("%Y%m%d_%H%M%S"), "balls": balls}, vis

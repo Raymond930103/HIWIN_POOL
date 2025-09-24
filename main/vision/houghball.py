@@ -18,7 +18,7 @@ from typing import Tuple, Optional
 
 # ======== 需自行設定 ========
 TABLE_W_CM   = 73        # 桌面水平長度 (cm)  ← 換成你的
-TABLE_H_CM   = 40        # 桌面垂直長度 (cm) ← 換成你的
+TABLE_H_CM   = 37.5      # 桌面垂直長度 (cm) ← 換成你的
 CAM_URL      = 0           # 攝影機 ID / RTSP
 SAVE_DIR     = Path(".")   # CORDS.json 儲存位置
 POCKET_R_PX  = 70          # 口袋半徑 (px) 視畫面解析度調整

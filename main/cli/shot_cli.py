@@ -4,9 +4,10 @@ from core.ball_generator import generate_layout
 from core.billiard_api  import compute_shot
 from core.solver_core   import BALL_R
 from main.configs.pygame_config import CONFIG as PGCFG
+from main.configs.table import TABLE_M as TABLE
 
 # ── 視覺參數 ───────────────────────────────────────────
-TABLE = (0.73, 0.375); SCALE=400; MARGIN=20
+SCALE=400; MARGIN=20
 R_BALL=int(BALL_R*SCALE); R_PK=int(R_BALL*1.6)
 DASH_W=int(2*BALL_R*SCALE)
 
