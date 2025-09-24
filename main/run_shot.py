@@ -22,7 +22,6 @@ import json
 import argparse
 from typing import Optional, Tuple, List, Union
 import traceback
-import re
 
 # 允許作為套件 (import main.run_shot) 或腳本 (python main/run_shot.py) 執行
 try:
@@ -72,46 +71,23 @@ def plan_shot_from_json(
         if not balls:
             raise RuntimeError(f"JSON 內沒有信心值 ≥ {MIN_CONF:.2f} 的球")
 
-        # --- 類別解析工具 ---
-        def _type_id(b: dict) -> Optional[int]:
-            t = b.get("type")
-            if t is None:
-                return None
-            s = str(t).strip().lower()
-            if s in {"cue", "cue_ball", "cueball", "white", "white_ball"}:
-                return 0
-            m = re.search(r"\d+", s)
-            if not m:
-                return None
-            try:
-                return int(m.group(0))
-            except Exception:
-                return None
-
         # --- cue 球 ---
-        cue_b = next((b for b in balls if _type_id(b) == 0), None)
+        cue_b = next((b for b in balls if str(b.get("type")) == "ball_0"), None)
         if cue_b is None:
             present = ",".join(sorted({str(b.get("type")) for b in balls})) or "(none)"
             raise RuntimeError(f"找不到母球(type='0')。偵測到的類別：{present}")
 
         # --- 目標球邏輯 ---
-        nonzero = [b for b in balls if (tid := _type_id(b)) is not None and tid != 0]
+        nonzero = [b for b in balls if str(b.get("type")) != "0"]
         if not nonzero:
             raise RuntimeError("場上沒有可擊打之目標球 (非 0 號)")
         if target_id is None:
             # conf 最高
             tgt_b = max(nonzero, key=lambda b: b.get("conf", 0.0))
         elif target_id == "min":
-            tgt_b = min(nonzero, key=lambda b: (_type_id(b) if _type_id(b) is not None else 99))
+            tgt_b = min(nonzero, key=lambda b: int(str(b.get("type", 99))))
         else:
             tgt_b = next((b for b in nonzero if str(b.get("type")) == str(target_id)), None)
-            if tgt_b is None:
-                try:
-                    target_num = int(str(target_id))
-                except Exception:
-                    target_num = None
-                if target_num is not None:
-                    tgt_b = next((b for b in nonzero if _type_id(b) == target_num), None)
             if tgt_b is None:
                 raise RuntimeError(f"找不到球號 {target_id}")
 
