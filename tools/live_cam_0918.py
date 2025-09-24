@@ -40,7 +40,7 @@ def _color_for(cls_id: int) -> tuple[int, int, int]:
 
 def run(
     cam: int | str = 0,
-    weights: str = "tools/0918best.pt",
+    weights: str = "tools/best.pt",
     conf: float = 0.25,
     imgsz: int = 640,
     device: str | None = None,
@@ -165,7 +165,7 @@ def run(
 def parse_args():
     ap = argparse.ArgumentParser(description="Live camera detection with tools/0918best.pt")
     ap.add_argument("--cam", default=0, help="Camera index or stream URL (default: 0)")
-    ap.add_argument("--weights", default="tools/0918best.pt", help="Path to model weights")
+    ap.add_argument("--weights", default="tools/best.pt", help="Path to model weights")
     ap.add_argument("--conf", type=float, default=0.30, help="Confidence threshold")
     ap.add_argument("--iou", type=float, default=0.50, help="IoU threshold for overlap suppression")
     ap.add_argument("--imgsz", type=int, default=640, help="Inference image size")

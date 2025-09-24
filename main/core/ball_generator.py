@@ -1,11 +1,12 @@
 import random, numpy as np
 from .solver_core import BALL_R
+from main.configs.table import TABLE_M
 
 def _rand(w, h):
     return np.array([random.uniform(BALL_R, w-BALL_R),
                      random.uniform(BALL_R, h-BALL_R)])
 
-def generate_layout(table_size=(0.73, 0.375),
+def generate_layout(table_size=TABLE_M,
                     n_blockers=2, seed=None):
     if seed is not None: random.seed(seed)
     w,h = table_size

@@ -17,13 +17,14 @@ from main.run_shot import plan_shot_from_json
 from main.configs.setting import HOST, PORT
 from main.communicate.tcp import create_connection, send_message, receive_message
 from .config import Config
+from main.configs.table import TABLE_H_CM
 
 
 def compute_arm_payload(angle_deg: float, cue_xy_m: Tuple[float, float]) -> str:
     # Mirror logic from main/main.py (without j6_diff adj)
     arm_angle = -angle_deg
     arm_x = round(cue_xy_m[0] * 1000, 2)        # m → mm
-    arm_y = round(375 - cue_xy_m[1] * 1000, 2)  # bottom-origin conversion
+    arm_y = round(TABLE_H_CM * 10 - cue_xy_m[1] * 1000, 2)  # bottom-origin conversion
     return f"{arm_angle:.2f}, {arm_x:.2f}, {arm_y:.2f}"
 
 

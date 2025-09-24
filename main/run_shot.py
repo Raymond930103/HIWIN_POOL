@@ -21,18 +21,16 @@
 import json
 import argparse
 from typing import Optional, Tuple, List, Union
+import traceback
 
 # 允許作為套件 (import main.run_shot) 或腳本 (python main/run_shot.py) 執行
 try:
-    from .core.billiard_api import compute_shot         # 當作套件匯入時
-    from . import gui as _gui_pkg  # 確保相對匯入生效
-    import main.gui.visualize as visualize
+    from .core.billiard_api import compute_shot         # 套件模式
 except Exception:
     # 直接腳本執行時，將本檔所在資料夾加入 sys.path
     import os, sys
     sys.path.append(os.path.dirname(__file__))
     from core.billiard_api import compute_shot          # 腳本模式
-    import gui.visualize as visualize                   # 腳本模式
 
 
 # ──────────────── 工具 ────────────────
@@ -40,6 +38,15 @@ except Exception:
 def cm2m(x_cm: float, y_cm: float) -> Tuple[float, float]:
     """cm → m"""
     return x_cm / 100.0, y_cm / 100.0
+
+
+# Expose the last planning error for callers that can't see stdout
+LAST_PLAN_SHOT_ERROR: Optional[str] = None
+
+
+def get_last_plan_shot_error() -> Optional[str]:
+    """Return last error message produced by plan_shot_from_json()."""
+    return LAST_PLAN_SHOT_ERROR
 
 
 def plan_shot_from_json(
@@ -52,26 +59,35 @@ def plan_shot_from_json(
     成功 → (angle_deg, cue_xy)
     失敗 → None（並印出錯誤訊息）
     """
+    global LAST_PLAN_SHOT_ERROR
+    LAST_PLAN_SHOT_ERROR = None
     try:
         # --- 讀檔 ---
         with open(json_path, "r", encoding="utf-8") as f:
             raw_balls = json.load(f)["balls"]
 
-        balls = [b for b in raw_balls if b["conf"] >= 0.30]
+        MIN_CONF = 0.05
+        balls = [b for b in raw_balls if b.get("conf", 0.0) >= MIN_CONF]
         if not balls:
-            raise RuntimeError("JSON 內沒有信心值 ≥0.30 的球")
+            raise RuntimeError(f"JSON 內沒有信心值 ≥ {MIN_CONF:.2f} 的球")
 
         # --- cue 球 ---
-        cue_b = next(b for b in balls if b["type"] == "0")
+        cue_b = next((b for b in balls if str(b.get("type")) == "ball_0"), None)
+        if cue_b is None:
+            present = ",".join(sorted({str(b.get("type")) for b in balls})) or "(none)"
+            raise RuntimeError(f"找不到母球(type='0')。偵測到的類別：{present}")
 
         # --- 目標球邏輯 ---
+        nonzero = [b for b in balls if str(b.get("type")) != "0"]
+        if not nonzero:
+            raise RuntimeError("場上沒有可擊打之目標球 (非 0 號)")
         if target_id is None:
             # conf 最高
-            tgt_b = max((b for b in balls if b["type"] != "0"), key=lambda b: b["conf"])
+            tgt_b = max(nonzero, key=lambda b: b.get("conf", 0.0))
         elif target_id == "min":
-            tgt_b = min((b for b in balls if b["type"] != "0"), key=lambda b: int(b["type"]))
+            tgt_b = min(nonzero, key=lambda b: int(str(b.get("type", 99))))
         else:
-            tgt_b = next((b for b in balls if b["type"] == str(target_id)), None)
+            tgt_b = next((b for b in nonzero if str(b.get("type")) == str(target_id)), None)
             if tgt_b is None:
                 raise RuntimeError(f"找不到球號 {target_id}")
 
@@ -99,11 +115,24 @@ def plan_shot_from_json(
             raise RuntimeError("無可行路徑 (compute_shot 回傳 None)")
 
         if show:
+            # 延遲匯入，避免環境缺少 pygame 時影響非顯示流程
+            try:
+                try:
+                    import main.gui.visualize as visualize
+                except Exception:
+                    import gui.visualize as visualize
+            except Exception:
+                raise RuntimeError("顯示需要 pygame，請安裝或關閉 --show")
             visualize.show(cue_xy, target, blocks, info)
 
-        return info["angle_deg"], cue_xy
+        result = (info["angle_deg"], cue_xy)
+        LAST_PLAN_SHOT_ERROR = None
+        return result
 
     except Exception as e:
+        # Compose a helpful error string and keep it for callers
+        tb = traceback.format_exc()
+        LAST_PLAN_SHOT_ERROR = f"{e}\n{tb}"
         print("[plan_shot] 失敗：", e)
         return None
 

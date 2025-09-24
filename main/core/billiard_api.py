@@ -1,7 +1,7 @@
 import math, numpy as np
 from .solver_core import BilliardSolver
+from main.configs.table import TABLE_M as TABLE
 
-TABLE = (0.735, 0.375)  # (m) 桌面尺寸
 POCKETS = [np.array([0,0]),
            np.array([TABLE[0]/2, 0]),
            np.array([TABLE[0],   0]),

@@ -1,7 +1,8 @@
 from vision.yoloball import capture_balls
 from communicate.tcp import create_connection, send_message, receive_message
 from configs.setting import HOST, PORT
-from run_shot import plan_shot_from_json
+from run_shot import plan_shot_from_json, get_last_plan_shot_error
+from configs.table import TABLE_H_CM
 
 import time
 
@@ -9,11 +10,14 @@ import time
 def compute_payload_from_latest_json(json_path: str):
     result = plan_shot_from_json(json_path, 'min', show=False)
     if result is None:
+        err = get_last_plan_shot_error()
+        if err:
+            print(f"plan_shot 失敗原因：\n{err}")
         return None
     angle, cue_xy = result
     arm_angle = -angle
     arm_x = round(cue_xy[0] * 1000, 2)
-    arm_y = round(375 - cue_xy[1] * 1000, 2)
+    arm_y = round(TABLE_H_CM * 10 - cue_xy[1] * 1000, 2)
     return f"{arm_angle:.2f}, {arm_x:.2f}, {arm_y:.2f}", result
 
 
