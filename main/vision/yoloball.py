@@ -41,8 +41,39 @@ def _pick_model_path() -> str:
 
 MODEL_PATH  = _pick_model_path()
 
-# Default mapping (fallback only). Will be overridden by model.names if available.
+# Default mapping (fallback only). Used when neither manual mapping nor model.names are available.
 CLASS_NAMES = ['0','1','2','3','4','5','6','7','8','9','10','3','4','5','6','7']
+
+# Manual override (optional):
+# - If provided, these take precedence over model.names.
+# - You can use either a by-index list (position = YOLO class id),
+#   or a dict mapping class id or class name → desired ball number (string or int).
+# Examples:
+#   MANUAL_CLASS_LIST = ['0','1','2','3','4','5','6','7','8','9','10','11','12','13','14','15']
+#   MANUAL_CLASS_MAP  = {0: '0', 1: '1', 'ball_9': '9', 'cue': '0'}
+MANUAL_CLASS_LIST: list[str] | None = None
+MANUAL_CLASS_MAP: dict[int | str, str] = {'ball_10': '2', 'ball_11': '3', 'ball_12': '4', 'ball_13': '5', 'ball_14': '6', 'ball_15': '7'}
+
+# Reference: Original model class list (for your weights)
+# Use this as a guide when editing MANUAL_CLASS_LIST/MANUAL_CLASS_MAP.
+# The true list depends on your .pt weights; we will print it once at runtime.
+# Fallback reference (when model.names unavailable):
+#   0: '0'
+#   1: '1'
+#   2: '2'
+#   3: '3'
+#   4: '4'
+#   5: '5'
+#   6: '6'
+#   7: '7'
+#   8: '8'
+#   9: '9'
+#   10: '10'
+#   11: '3'
+#   12: '4'
+#   13: '5'
+#   14: '6'
+#   15: '7'
 CORNER_JSON  = "main/vision/corner.json"
 POCKETS_JSON = "main/vision/pockets.json"   # optional; falls back to computed
 POCKET_JSON  = "main/vision/pocket.json"    # legacy singular filename support
@@ -311,42 +342,102 @@ def _detect_and_convert(img: np.ndarray, H: np.ndarray, pockets: list[tuple[floa
         cv2.circle(vis, (int(px), int(py)), POCKET_R_PX, (255, 0, 255), 2)
 
     model = YOLO(MODEL_PATH)
-    # Resolve class names from the model if available, else keep fallback
+    # Resolve class names with priority: manual mapping → model.names (normalized) → fallback list
     try:
         names = getattr(model, 'names', None)
-        # Helper: normalize a class label to plain digits when possible
+
         def _normalize_label(x: str) -> str:
             s = str(x).strip().lower()
-            # common synonyms for cue ball
             if s in {"cue", "cue_ball", "cueball", "white", "white_ball"}:
                 return "0"
             m = re.search(r"\d+", s)
             if m:
-                # strip leading zeros
                 try:
                     return str(int(m.group(0)))
                 except Exception:
                     return m.group(0)
             return s
+
+        # Base resolver from model.names or fallback list
         if isinstance(names, dict):
-            # dict: id -> name
             max_id = max(names.keys()) if names else -1
             mapped = [None] * (max_id + 1)
             for k, v in names.items():
                 mapped[int(k)] = str(v)
-            # if all entries exist, use it
             if all(isinstance(x, str) and x for x in mapped):
-                # normalize names like 'ball_12' → '12'
                 CLASS_MAP = [_normalize_label(x) for x in mapped]
-                class_name = lambda cid: CLASS_MAP[cid] if 0 <= cid < len(CLASS_MAP) else str(cid)
+                base_class_name = lambda cid: CLASS_MAP[cid] if 0 <= cid < len(CLASS_MAP) else str(cid)
             else:
-                class_name = lambda cid: CLASS_NAMES[cid] if 0 <= cid < len(CLASS_NAMES) else str(cid)
+                base_class_name = lambda cid: CLASS_NAMES[cid] if 0 <= cid < len(CLASS_NAMES) else str(cid)
         elif isinstance(names, (list, tuple)) and len(names) > 0:
             mapped = [str(x) for x in names]
             CLASS_MAP = [_normalize_label(x) for x in mapped]
-            class_name = lambda cid: CLASS_MAP[cid] if 0 <= cid < len(CLASS_MAP) else str(cid)
+            base_class_name = lambda cid: CLASS_MAP[cid] if 0 <= cid < len(CLASS_MAP) else str(cid)
         else:
-            class_name = lambda cid: CLASS_NAMES[cid] if 0 <= cid < len(CLASS_NAMES) else str(cid)
+            base_class_name = lambda cid: CLASS_NAMES[cid] if 0 <= cid < len(CLASS_NAMES) else str(cid)
+
+        # Manual override wrapper (checked first)
+        def _manual_first(cid: int) -> str:
+            # By-index list
+            if MANUAL_CLASS_LIST is not None and 0 <= cid < len(MANUAL_CLASS_LIST):
+                return str(MANUAL_CLASS_LIST[cid])
+            # Dict overrides: by id or by name variants
+            if MANUAL_CLASS_MAP:
+                if cid in MANUAL_CLASS_MAP:
+                    return str(MANUAL_CLASS_MAP[cid])
+                label = None
+                try:
+                    if isinstance(names, dict):
+                        label = names.get(cid)
+                    elif isinstance(names, (list, tuple)) and 0 <= cid < len(names):
+                        label = names[cid]
+                except Exception:
+                    label = None
+                if label is not None:
+                    for key in (label, str(label).lower(), str(label).upper()):
+                        if key in MANUAL_CLASS_MAP:
+                            return str(MANUAL_CLASS_MAP[key])
+            # Fallback to base
+            return base_class_name(cid)
+
+        class_name = _manual_first
+
+        # One-time console reference: id : raw_name -> normalized
+        # Helps maintainers edit MANUAL_CLASS_LIST/MANUAL_CLASS_MAP.
+        global _PRINTED_CLASS_REF
+        try:
+            _PRINTED_CLASS_REF
+        except NameError:
+            _PRINTED_CLASS_REF = False
+        if not _PRINTED_CLASS_REF:
+            try:
+                raw_list: list[str] = []
+                if isinstance(names, dict) and names:
+                    max_id = max(int(k) for k in names.keys())
+                    raw_list = [str(names.get(i, i)) for i in range(max_id + 1)]
+                elif isinstance(names, (list, tuple)) and names:
+                    raw_list = [str(x) for x in names]
+                else:
+                    raw_list = [str(x) for x in CLASS_NAMES]
+
+                def _normalize_label2(x: str) -> str:
+                    s = str(x).strip().lower()
+                    if s in {"cue", "cue_ball", "cueball", "white", "white_ball"}:
+                        return "0"
+                    m = re.search(r"\d+", s)
+                    if m:
+                        try:
+                            return str(int(m.group(0)))
+                        except Exception:
+                            return m.group(0)
+                    return s
+
+                print("[YOLO names] id : raw_name -> normalized")
+                for i, nm in enumerate(raw_list):
+                    print(f"  {i:2d}: '{nm}' -> '{_normalize_label2(nm)}'")
+            except Exception:
+                pass
+            _PRINTED_CLASS_REF = True
     except Exception:
         class_name = lambda cid: CLASS_NAMES[cid] if 0 <= cid < len(CLASS_NAMES) else str(cid)
     r = model.predict(

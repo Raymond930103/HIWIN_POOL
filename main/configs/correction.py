@@ -33,9 +33,9 @@ FUDGE_MODE: str = 'axis'
 # fx = 1 + kx*u^2 + kx2*u^4 ; fy = 1 + ky*v^2 + ky2*v^4
 # where u = (x-xc)/(W/2), v = (y-yc)/(H/2)
 KX: float = -0.045    # negative to shrink near left/right edges
-KX2: float = -0.01
+KX2: float = -0.02
 KY: float = -0.02     # negative to shrink near top/bottom edges
-KY2: float = -0.0
+KY2: float = -0.01
 
 # Radial mode coefficients
 # s = 1 + k1*r^2 + k2*r^4 ; r^2 = u^2 + v^2

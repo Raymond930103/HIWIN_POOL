@@ -1,4 +1,4 @@
-import cv2, json, time, numpy as np, yaml
+import cv2, json, time, numpy as np, yaml, re
 from pathlib import Path
 from ultralytics import YOLO
 
@@ -7,11 +7,36 @@ JSON_CORNERS = "main/vision/corner.json"   # 4 角座標（未去畸變像素座
 INTRINSICS   = "main/vision/intrinsics.yaml"  # 內參（可選；若存在就使用）
 MODEL_PATH   = "main/vision/best2.pt"      # YOLO 權重
 CAM_URL      = 0                           # 攝影機 ID / rtsp
-CLASS_NAMES  = ['0','1','10','11','12','13','14','15','2','3','4','5','6','7','8','9']
+# 手動對應（優先於 model.names）：
+# 1) 以索引列表（位置 = YOLO 類別 id）；或
+# 2) 以字典，鍵可用類別 id 或類別名稱（字串）。
+#    例：CLASS_TO_BALL = {0:'0', 1:'1', 'ball_9':'9', 'cue':'0'}
+CLASS_NAMES  = ['0','1','10','11','12','13','14','15','2','3','4','5','6','7','8','9']  # 後備（當 1/2 都未提供時）
+CLASS_TO_BALL: dict[int | str, int | str] = {}
 SCALE_PX_PER_CM = 22.11                    # 1 cm ≈ 22.11 px（拉正圖上的像素/公分）
 CONF_THRES   = 0.25                        # YOLO 閾值
 SAVE_DIR     = Path("main/vision/captured_json")       # JSON 目錄
 POCKET_RADIUS_PX = 50                     # 口袋半徑 (px)
+
+# 參考：原始 YOLO 權重的類別名稱（供比對手動對應）。
+# 實際名稱會依你的 .pt 權重而異；程式在執行時會列印一次。
+# 若無法取得 model.names，則以下列後備清單為例：
+#   0: '0'
+#   1: '1'
+#   2: '10'
+#   3: '11'
+#   4: '12'
+#   5: '13'
+#   6: '14'
+#   7: '15'
+#   8: '2'
+#   9: '3'
+#   10: '4'
+#   11: '5'
+#   12: '6'
+#   13: '7'
+#   14: '8'
+#   15: '9'
 
 
 def _load_intrinsics(p: str):
@@ -94,6 +119,40 @@ def capture_balls(wait_sec: int = 3,
     warped = cv2.warpPerspective(frame, H, (DST_W, DST_H))
 
     res = model.predict(warped, imgsz=640, conf=conf_thres, verbose=False)[0]
+    names = getattr(model, 'names', None)
+
+    # 列印一次：id : 原始名稱 -> 正規化（便於手動對應使用）
+    global _CAPTEST_PRINTED_NAMES_REF
+    try:
+        _CAPTEST_PRINTED_NAMES_REF
+    except NameError:
+        _CAPTEST_PRINTED_NAMES_REF = False
+    if not _CAPTEST_PRINTED_NAMES_REF:
+        try:
+            if isinstance(names, dict) and names:
+                max_id = max(int(k) for k in names.keys())
+                raw_list = [str(names.get(i, i)) for i in range(max_id + 1)]
+            elif isinstance(names, (list, tuple)) and names:
+                raw_list = [str(x) for x in names]
+            else:
+                raw_list = [str(x) for x in CLASS_NAMES]
+            def _norm(x: str) -> str:
+                s = str(x).strip().lower()
+                if s in {"cue", "cue_ball", "cueball", "white", "white_ball"}:
+                    return "0"
+                m = re.search(r"\d+", s)
+                if m:
+                    try:
+                        return str(int(m.group(0)))
+                    except Exception:
+                        return m.group(0)
+                return s
+            print("[YOLO names] id : raw_name -> normalized")
+            for i, nm in enumerate(raw_list):
+                print(f"  {i:2d}: '{nm}' -> '{_norm(nm)}'")
+        except Exception:
+            pass
+        _CAPTEST_PRINTED_NAMES_REF = True
 
     # 口袋定義（在拉正影像上）
     POCKETS = [
@@ -115,11 +174,44 @@ def capture_balls(wait_sec: int = 3,
         if not in_pocket:
             kept.append((x1,y1,x2,y2,int(cls),float(cf),cx,cy))
 
+    def _map_label(cls_id: int) -> str:
+        # 1) 明確字典優先（id/name 大小寫不敏感）
+        if cls_id in CLASS_TO_BALL:
+            return str(CLASS_TO_BALL[cls_id])
+        label_name = None
+        try:
+            if isinstance(names, dict):
+                label_name = names.get(cls_id)
+            elif isinstance(names, (list, tuple)) and 0 <= cls_id < len(names):
+                label_name = names[cls_id]
+        except Exception:
+            label_name = None
+        if label_name is not None:
+            for key in (label_name, str(label_name).lower(), str(label_name).upper()):
+                if key in CLASS_TO_BALL:
+                    return str(CLASS_TO_BALL[key])
+        # 2) 後備列表
+        if CLASS_NAMES and 0 <= cls_id < len(CLASS_NAMES):
+            return str(CLASS_NAMES[cls_id])
+        # 3) 嘗試從名稱解析數字 / 白球別名
+        if label_name is not None:
+            s = str(label_name).strip().lower()
+            if s in {"cue", "cue_ball", "cueball", "white", "white_ball"}:
+                return "0"
+            m = re.search(r"\d+", s)
+            if m:
+                try:
+                    return str(int(m.group(0)))
+                except Exception:
+                    return m.group(0)
+        # 4) 最後回退為類別 id
+        return str(cls_id)
+
     ts  = time.strftime("%Y%m%d_%H%M%S")
     data = {"timestamp": ts, "balls":[]}
     for x1,y1,x2,y2,cls,cf,cx,cy in kept:
         data["balls"].append({
-            "type" : CLASS_NAMES[cls],
+            "type" : _map_label(int(cls)),
             "conf" : round(cf,3),
             "cx_cm": round(cx / SCALE_PX_PER_CM, 2),
             "cy_cm": round(cy / SCALE_PX_PER_CM, 2),
