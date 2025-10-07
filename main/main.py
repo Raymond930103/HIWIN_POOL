@@ -3,6 +3,7 @@ from communicate.tcp import create_connection, send_message, receive_message
 from configs.setting import HOST, PORT
 from run_shot import plan_shot_from_json, get_last_plan_shot_error
 from configs.table import TABLE_H_CM
+from configs.correction import apply_fudge
 
 import time
 
@@ -15,9 +16,12 @@ def compute_payload_from_latest_json(json_path: str):
             print(f"plan_shot 失敗原因：\n{err}")
         return None
     angle, cue_xy = result
+    # cue_xy is in meters → convert to cm for fudge, then to mm for robot
+    x_cm, y_cm = cue_xy[0] * 100.0, cue_xy[1] * 100.0
+    x_cm, y_cm = apply_fudge(x_cm, y_cm)
     arm_angle = -angle
-    arm_x = round(cue_xy[0] * 1000, 2)
-    arm_y = round(TABLE_H_CM * 10 - cue_xy[1] * 1000, 2)
+    arm_x = round(x_cm * 10.0, 2)
+    arm_y = round(TABLE_H_CM * 10.0 - y_cm * 10.0, 2)
     return f"{arm_angle:.2f}, {arm_x:.2f}, {arm_y:.2f}", result
 
 

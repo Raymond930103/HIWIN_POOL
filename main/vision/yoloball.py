@@ -42,7 +42,7 @@ def _pick_model_path() -> str:
 MODEL_PATH  = _pick_model_path()
 
 # Default mapping (fallback only). Will be overridden by model.names if available.
-CLASS_NAMES = ['0','1','2','3','4','5','6','7','8','9','10','11','12','13','14','15']
+CLASS_NAMES = ['0','1','2','3','4','5','6','7','8','9','10','3','4','5','6','7']
 CORNER_JSON  = "main/vision/corner.json"
 POCKETS_JSON = "main/vision/pockets.json"   # optional; falls back to computed
 POCKET_JSON  = "main/vision/pocket.json"    # legacy singular filename support
