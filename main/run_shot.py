@@ -72,7 +72,7 @@ def plan_shot_from_json(
             raise RuntimeError(f"JSON 內沒有信心值 ≥ {MIN_CONF:.2f} 的球")
 
         # --- cue 球 ---
-        cue_b = next((b for b in balls if str(b.get("type")) == "ball_0"), None)
+        cue_b = next((b for b in balls if str(b.get("type")) == "0"), None)
         if cue_b is None:
             present = ",".join(sorted({str(b.get("type")) for b in balls})) or "(none)"
             raise RuntimeError(f"找不到母球(type='0')。偵測到的類別：{present}")

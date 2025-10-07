@@ -15,6 +15,7 @@ from __future__ import annotations
 import cv2, json, time, numpy as np
 from pathlib import Path
 from typing import Tuple, Optional
+import yaml
 
 # ======== 需自行設定 ========
 TABLE_W_CM   = 73        # 桌面水平長度 (cm)  ← 換成你的
@@ -60,7 +61,21 @@ def classify_ball(hsv_pixels: np.ndarray) -> Optional[str]:
     return None
 
 # ========= 主功能 =========
-def capture_balls(countdown:int=3, show:bool=False):
+def _load_intrinsics_yaml(p: str):
+    with open(p, 'r', encoding='utf-8') as f:
+        d = yaml.safe_load(f)
+    M = d.get('camera_matrix', d.get('K'))
+    if isinstance(M, dict):
+        M = M.get('data', M.get('vals'))
+    K = np.array(M, dtype=np.float32).reshape(3, 3)
+    D_ = d.get('distortion_coefficients', d.get('dist_coeff', d.get('D')))
+    if isinstance(D_, dict):
+        D_ = D_.get('data', D_.get('vals'))
+    D = np.array(D_, dtype=np.float32).reshape(-1)
+    return K, D
+
+
+def capture_balls(countdown:int=3, show:bool=False, *, intrinsics_path: Optional[str] = None):
     cap=cv2.VideoCapture(CAM_URL)
     if not cap.isOpened(): raise RuntimeError("無法開啟攝影機")
 
@@ -68,6 +83,20 @@ def capture_balls(countdown:int=3, show:bool=False):
     ret, frame0 = cap.read()
     if not ret: raise RuntimeError("讀取影像失敗")
     H_img, W_img = frame0.shape[:2]
+
+    # Optional undistort (apply to all frames)
+    undistort = False
+    map1 = map2 = None
+    if intrinsics_path is None and Path("main/vision/intrinsics.yaml").exists():
+        intrinsics_path = "main/vision/intrinsics.yaml"
+    if intrinsics_path:
+        try:
+            K, D = _load_intrinsics_yaml(intrinsics_path)
+            newK, _ = cv2.getOptimalNewCameraMatrix(K, D, (W_img, H_img), 0)
+            map1, map2 = cv2.initUndistortRectifyMap(K, D, None, newK, (W_img, H_img), cv2.CV_16SC2)
+            undistort = True
+        except Exception as e:
+            print(f"[WARN] 讀取內參失敗，跳過去畸變: {e}")
     scale_x = W_img / TABLE_W_CM      # px / cm
     scale_y = H_img / TABLE_H_CM
 
@@ -86,6 +115,8 @@ def capture_balls(countdown:int=3, show:bool=False):
     end=time.time()+countdown
     while time.time()<end:
         ok, prev = cap.read();   now = time.time()
+        if ok and undistort:
+            prev = cv2.remap(prev, map1, map2, interpolation=cv2.INTER_LINEAR)
         if not ok: continue
         sec = int(end-now)+1
         cv2.putText(prev,f"倒數 {sec}s",(20,40),
@@ -93,7 +124,10 @@ def capture_balls(countdown:int=3, show:bool=False):
         cv2.imshow("Preview",prev)
         if cv2.waitKey(30)&0xFF==27:
             cap.release();cv2.destroyAllWindows();return None,None
-    ok, img = cap.read(); cap.release(); cv2.destroyAllWindows()
+    ok, img = cap.read(); 
+    if ok and undistort:
+        img = cv2.remap(img, map1, map2, interpolation=cv2.INTER_LINEAR)
+    cap.release(); cv2.destroyAllWindows()
     if not ok: raise RuntimeError("拍照失敗")
 
     # Hough 找球

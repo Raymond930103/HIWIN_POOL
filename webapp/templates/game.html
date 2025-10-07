@@ -94,7 +94,7 @@ async function startGame() {
 
 async function strikeOnce() {
   if (currentTurn !== 'robot') { alert('現在輪到玩家'); return null; }
-  setStatus('打擊中...');
+  setStatus('請按實體按鈕進行打擊...');
   // Temporarily stop preview to avoid camera conflicts
   const wasOn = camOn; stopCam();
   const res = await fetch('/api/strike', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ game_id: gameId })});

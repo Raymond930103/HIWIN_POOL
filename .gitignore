@@ -183,3 +183,4 @@ cython_debug/
 .cursorindexingignore
 captures_json/cords.json
 captures_json/cords.json
+tools/calib_imgs
