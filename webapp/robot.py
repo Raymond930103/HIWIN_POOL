@@ -132,31 +132,33 @@ def perform_handshaked_strike(*,
         if json_path:
             result = plan_shot_from_json(json_path, target, show=False)
 
-        # Compute payload or fallback
+        # Compute payload or handle no-plan case
         if result is not None:
             angle_deg, cue_xy = result
             payload = compute_arm_payload(angle_deg, cue_xy)
-        else:
-            payload = "0.00, 0.00, 0.00"  # fallback when planning fails
 
-        # 4) Acknowledge and send coordinates
-        send_message(sock, "100")
-        send_message(sock, payload)
+            # 4) Acknowledge and send coordinates
+            send_message(sock, "100")
+            send_message(sock, payload)
 
-        # 5) Wait for DONE
-        start = time.monotonic()
-        while True:
-            try:
-                msg = receive_message(sock)
-            except Exception:
-                msg = None
-            if msg:
-                reply = msg
-                if msg == "DONE":
+            # 5) Wait for DONE
+            start = time.monotonic()
+            while True:
+                try:
+                    msg = receive_message(sock)
+                except Exception:
+                    msg = None
+                if msg:
+                    reply = msg
+                    if msg == "DONE":
+                        break
+                if wait_done_max is not None and (time.monotonic() - start) > wait_done_max:
+                    reply = reply or "timeout_waiting_DONE"
                     break
-            if wait_done_max is not None and (time.monotonic() - start) > wait_done_max:
-                reply = reply or "timeout_waiting_DONE"
-                break
+        else:
+            # Do not send fallback (0,0,0); just report no-plan
+            payload = None
+            reply = "NO_PLAN"
 
     finally:
         try:
