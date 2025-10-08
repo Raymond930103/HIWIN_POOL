@@ -32,6 +32,8 @@
   <div class="actions">
     <button id="strikeBtn">打擊（機器人）</button>
     <button id="captureBtn">玩家結束（拍攝）</button>
+    <button id="keepBtn">續打（保持回合）</button>
+    <button id="switchBtn">換邊（切換回合）</button>
   </div>
   <div id="status"></div>
   <div class="row">
@@ -63,15 +65,23 @@ function setStatus(t) {
 function updateControls() {
   const strikeBtn = document.getElementById('strikeBtn');
   const captureBtn = document.getElementById('captureBtn');
+  const keepBtn = document.getElementById('keepBtn');
+  const switchBtn = document.getElementById('switchBtn');
   if (!currentTurn) {
     strikeBtn.disabled = true;
     captureBtn.disabled = true;
+    keepBtn.disabled = true;
+    switchBtn.disabled = true;
     return;
   }
   const who = currentTurn === 'robot' ? '機器人' : '玩家';
   setStatus(`目前輪到：${who}`);
   strikeBtn.disabled = currentTurn !== 'robot';
   captureBtn.disabled = currentTurn !== 'human';
+  // Keep turn is available whenever the game is active
+  keepBtn.disabled = false;
+  // Switch turn is available whenever the game is active
+  switchBtn.disabled = false;
 }
 
 async function startGame() {
@@ -101,12 +111,19 @@ async function strikeOnce() {
   const data = await res.json();
   if (!res.ok) { alert('打擊失敗: ' + (data.error||'')); return null; }
   updateImage(data.image_path);
-  setStatus(`步驟 ${data.step}，剩餘球數: ${data.balls_remaining}`);
-  if (data.game_status === 'ended' || (data.balls_remaining !== undefined && data.balls_remaining === 0)) {
-    setStatus('遊戲結束');
-    currentTurn = null;
+  // Always show returned status message if provided
+  if (data.sent) {
+    setStatus(data.status_msg || `步驟 ${data.step}，剩餘球數: ${data.balls_remaining}`);
+    if (data.game_status === 'ended' || (data.balls_remaining !== undefined && data.balls_remaining === 0)) {
+      setStatus('遊戲結束');
+      currentTurn = null;
+    } else {
+      currentTurn = data.next_turn || 'human';
+    }
   } else {
-    currentTurn = data.next_turn || 'human';
+    // No coordinates were sent (no viable plan). Switch to player's turn.
+    setStatus(data.status_msg || '找不到可行路徑，換玩家回合');
+    currentTurn = 'human';
   }
   updateControls();
   if (wasOn) startCam();
@@ -126,6 +143,38 @@ async function captureOnly() {
   currentTurn = data.next_turn || 'robot';
   updateControls();
   if (wasOn) startCam();
+}
+
+async function keepTurn() {
+  if (!gameId || !currentTurn) { alert('尚未開始遊戲'); return; }
+  const who = currentTurn === 'robot' ? '機器人' : '玩家';
+  setStatus(`保持回合中（${who}）...`);
+  const res = await fetch('/api/keep_turn', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ game_id: gameId })
+  });
+  const data = await res.json();
+  if (!res.ok) { alert('保持回合失敗: ' + (data.error||'')); return; }
+  // next_turn should equal the currentTurn we preserved
+  currentTurn = data.next_turn || currentTurn;
+  setStatus(`已保持回合：${who}｜步驟 ${data.step}${data.balls_remaining!=null?`，剩餘球數: ${data.balls_remaining}`:''}`);
+  updateControls();
+}
+
+async function switchTurn() {
+  if (!gameId || !currentTurn) { alert('尚未開始遊戲'); return; }
+  const who = currentTurn === 'robot' ? '機器人' : '玩家';
+  setStatus(`切換回合（從 ${who}）...`);
+  const res = await fetch('/api/switch_turn', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ game_id: gameId })
+  });
+  const data = await res.json();
+  if (!res.ok) { alert('切換回合失敗: ' + (data.error||'')); return; }
+  currentTurn = data.next_turn || (currentTurn === 'robot' ? 'human' : 'robot');
+  const who2 = currentTurn === 'robot' ? '機器人' : '玩家';
+  setStatus(`已切換回合：現在輪到 ${who2}${data.balls_remaining!=null?`，剩餘球數: ${data.balls_remaining}`:''}`);
+  updateControls();
 }
 
 function updateImage(path) {
@@ -160,6 +209,8 @@ function stopCam() {
 document.getElementById('startBtn').addEventListener('click', startGame);
 document.getElementById('strikeBtn').addEventListener('click', strikeOnce);
 document.getElementById('captureBtn').addEventListener('click', captureOnly);
+document.getElementById('keepBtn').addEventListener('click', keepTurn);
+document.getElementById('switchBtn').addEventListener('click', switchTurn);
 document.getElementById('toggleCamBtn').addEventListener('click', () => { camOn ? stopCam() : startCam(); });
 </script>
 {% endblock %}

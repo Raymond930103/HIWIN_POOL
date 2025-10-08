@@ -280,6 +280,7 @@ def strike():
     else:
         rel_img = None
 
+    # Record shot; set just_capture=False to pass turn to human next
     shot = Shot(
         game_id=game.id,
         step_number=step,
@@ -300,6 +301,12 @@ def strike():
 
     db.session.commit()
 
+    # Provide a human-readable status for the frontend
+    if sent:
+        status_msg = "已送出座標，等待機器人完成"
+    else:
+        status_msg = (plan_error or "找不到可行路徑，換玩家回合")
+
     return jsonify({
         "step": step,
         "balls_remaining": remaining,
@@ -312,6 +319,7 @@ def strike():
         "plan_error": plan_error,
         "game_status": game.status,
         "next_turn": _current_turn(game),
+        "status_msg": status_msg,
     })
 
 
@@ -340,6 +348,113 @@ def game_status(game_id: int):
             "cue_x_m": last.cue_x_m,
             "cue_y_m": last.cue_y_m,
         } if last else None
+    })
+
+
+@game_bp.route("/api/keep_turn", methods=["POST"])
+@login_required
+def keep_turn():
+    """Force keeping the current striker's turn.
+
+    Implementation detail: we append a minimal Shot row with `just_capture`
+    set so that `_current_turn(game)` stays the same side as before.
+    - If it's robot's turn now -> set last.just_capture=True (robot still next)
+    - If it's human's turn now -> set last.just_capture=False (human still next)
+    This avoids DB schema changes.
+    """
+    game_id = request.json.get("game_id")
+    game = Game.query.get(game_id)
+    if not game or game.user_id != current_user.id:
+        return jsonify({"error": "game not found"}), 404
+    if game.status == "ended":
+        return jsonify({"error": "game already ended"}), 400
+
+    # Determine current side and create a no-op shot to preserve the turn
+    current = _current_turn(game)
+    last = game.shots[-1] if game.shots else None
+    step = (last.step_number + 1) if last else 1
+    balls_json = last.balls_json if last else json.dumps({"balls": []})
+
+    # Choose just_capture to preserve the same side next
+    preserve_robot = (current == "robot")
+    just_capture = True if preserve_robot else False
+
+    shot = Shot(
+        game_id=game.id,
+        step_number=step,
+        balls_json=balls_json,
+        angle_deg=None,
+        cue_x_m=None,
+        cue_y_m=None,
+        image_path=(last.image_path if last else None),
+        just_capture=just_capture,
+    )
+    db.session.add(shot)
+    db.session.commit()
+
+    # Compute remaining from balls_json we saved
+    try:
+        balls = json.loads(balls_json).get("balls", [])
+        remaining = _balls_remaining(balls)
+    except Exception:
+        remaining = None
+
+    return jsonify({
+        "step": step,
+        "balls_remaining": remaining,
+        "next_turn": _current_turn(game),
+        "kept": True,
+    })
+
+
+@game_bp.route("/api/switch_turn", methods=["POST"])
+@login_required
+def switch_turn():
+    """Switch the side to play next (toggle current turn).
+
+    Achieved by appending a minimal Shot with `just_capture` set to
+    make `_current_turn(game)` return the opposite side.
+    """
+    game_id = request.json.get("game_id")
+    game = Game.query.get(game_id)
+    if not game or game.user_id != current_user.id:
+        return jsonify({"error": "game not found"}), 404
+    if game.status == "ended":
+        return jsonify({"error": "game already ended"}), 400
+
+    current = _current_turn(game)
+    desired = "robot" if current == "human" else "human"
+    # just_capture=True => next is robot, False => next is human
+    just_capture = True if desired == "robot" else False
+
+    last = game.shots[-1] if game.shots else None
+    step = (last.step_number + 1) if last else 1
+    balls_json = last.balls_json if last else json.dumps({"balls": []})
+
+    shot = Shot(
+        game_id=game.id,
+        step_number=step,
+        balls_json=balls_json,
+        angle_deg=None,
+        cue_x_m=None,
+        cue_y_m=None,
+        image_path=(last.image_path if last else None),
+        just_capture=just_capture,
+    )
+    db.session.add(shot)
+    db.session.commit()
+
+    try:
+        balls = json.loads(balls_json).get("balls", [])
+        remaining = _balls_remaining(balls)
+    except Exception:
+        remaining = None
+
+    return jsonify({
+        "step": step,
+        "balls_remaining": remaining,
+        "next_turn": _current_turn(game),
+        "switched": True,
     })
 
 
