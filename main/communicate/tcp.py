@@ -36,6 +36,10 @@ def send_message(sock: socket.socket, payload: str) -> None:
     message = f"{{{payload}}}"
     sock.sendall(message.encode("utf-8"))
     print(f"已送出訊息：{message}")
+    # 若送出的是握手/確認碼 '100'，在後續資料前短暫等待
+    # 以確保對端有足夠時間處理該訊息。
+    if str(payload).strip() == "100":
+        time.sleep(0.2)
 
 
 def receive_message(sock: socket.socket,
@@ -74,4 +78,3 @@ if __name__ == "__main__":
             send_message(sock, "0")  # 傳送測試訊息
             time.sleep(3)
     
-
