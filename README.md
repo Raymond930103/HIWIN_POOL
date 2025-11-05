@@ -132,15 +132,69 @@ Quick start:
 
    pip3 install -r requirements-web.txt
 
-2. Run the web server:
+2. Run the web server (bind externally):
 
-   python3 webapp/app.py
+   WEB_HOST=0.0.0.0 WEB_PORT=8000 WEB_DEBUG=true python3 -m webapp.app
 
-3. Open http://localhost:8000, register, login, and start a game.
+3. Open http://localhost:8000 locally, register, login, and start a game.
 
 Notes:
 - By default, robot commands are not sent. To enable, set `SEND_TO_ROBOT = True` in `webapp/config.py`.
 - The capture flow uses your camera and may open a preview window via OpenCV during countdown.
+
+## External/ZeroTier Access
+
+You can access the web UI and the live camera feed from other devices on your network or a ZeroTier virtual network.
+
+- Host/port configuration:
+  - `WEB_HOST`: interface to bind (use `0.0.0.0` to accept external connections)
+  - `WEB_PORT`: TCP port (default `8000`)
+  - `WEB_DEBUG`: `true`/`false` to enable Flask debug
+
+- Example (Linux/macOS/WSL):
+
+  WEB_HOST=0.0.0.0 WEB_PORT=8000 WEB_DEBUG=true python3 -m webapp.app
+
+- From another device on the same network/ZeroTier: open
+
+  http://<your-host-ip-or-zerotier-ip>:8000/
+
+- Robot connection target:
+  - The robot client uses `main/configs/setting.py` and now supports env overrides:
+    - `ROBOT_HOST`: robot server IP (e.g., your robot’s ZeroTier IP)
+    - `ROBOT_PORT`: robot server port (default `4000`)
+  - Example:
+
+    ROBOT_HOST=10.147.0.23 ROBOT_PORT=4000 WEB_HOST=0.0.0.0 WEB_PORT=8000 python3 -m webapp.app
+
+### Checklist for ZeroTier
+
+1. Join the same ZeroTier network on both machines (server and client) and authorize them in the ZeroTier controller if required.
+2. Find the server’s ZeroTier IP from `zerotier-cli listpeers` or ZeroTier UI.
+3. Start the app bound to `0.0.0.0` on a known port (e.g., 8000).
+4. Ensure OS firewall allows inbound TCP on that port for the ZeroTier interface.
+5. Access the site from the client via `http://<zerotier-ip>:8000/`.
+
+### Notes
+
+- The live camera uses an MJPEG stream at `/video_feed` and is protected by login.
+- When the game performs capture/strike, the UI temporarily pauses the preview to avoid camera device conflicts.
+- For production, consider a reverse proxy (nginx/caddy) and TLS termination. Disable `WEB_DEBUG` in production.
+
+### Troubleshooting
+
+- Cannot connect from another device:
+  - Verify you can reach the server IP: `ping <zerotier-ip>`.
+  - Check firewall: allow inbound TCP `<WEB_PORT>` on the ZeroTier interface.
+  - Confirm the app is bound to `0.0.0.0` and listening: `ss -tulpn | rg :8000` or `netstat -an | find "8000"`.
+  - Test from the server itself: `curl http://127.0.0.1:8000/`.
+- Live camera not showing:
+  - Ensure only one process uses the camera. The UI stops preview before capture.
+  - Try reducing resolution in `webapp/config.py` (CAMERA_WIDTH/HEIGHT) or set `CAMERA_STREAM_MAX_WIDTH` smaller.
+  - Confirm OpenCV can open your camera with `tools/cap_test.py`.
+- Robot not receiving shots:
+  - Set `ROBOT_HOST`/`ROBOT_PORT` to the robot server’s reachable address.
+  - Confirm TCP reachability: `nc -vz <robot-host> <port>` or `telnet`.
 
 # Contributing
 Contributions to this project are welcome! If you'd like to contribute, please follow these general guidelines:
