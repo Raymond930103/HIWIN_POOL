@@ -1,46 +1,736 @@
 {% extends 'base.html' %}
 {% block title %}成績 - Billiard Robot{% endblock %}
+{% block head %}
+<style>
+.control-bar { display:flex; flex-wrap:wrap; gap:16px; align-items:flex-end; margin-bottom:16px; }
+.control-group { display:flex; flex-direction:column; gap:6px; min-width:120px; }
+.control-group.inline { flex-direction:row; align-items:center; gap:12px; }
+.toggle-btn { padding:6px 12px; border:1px solid #ccc; border-radius:16px; background:#f7f7f7; cursor:pointer; font-size:0.9rem; color:#000; }
+.toggle-btn.active { background:#2d6cdf; color:#fff; border-color:#2d6cdf; }
+.tabs { display:flex; gap:8px; margin-bottom:8px; }
+.tab { padding:8px 16px; border:1px solid #d0d0d0; border-bottom:none; background:#f4f4f4; cursor:pointer; border-radius:8px 8px 0 0; color:#000; }
+.tab.active { background:#fff; border-bottom:1px solid #fff; font-weight:bold; color:#000; }
+.tab-panel { display:none; border:1px solid #d0d0d0; border-radius:0 8px 8px 8px; padding:16px; background:#fff; }
+.tab-panel.active { display:block; }
+.chart-card { display:flex; flex-wrap:wrap; gap:16px; }
+.chart-wrap { flex:1 1 480px; min-height:320px; position:relative; }
+.chart-wrap canvas { width:100%; height:100%; }
+.game-selector { flex:0 0 240px; max-height:360px; overflow:auto; border-left:1px solid #ececec; padding-left:12px; }
+.game-selector-header { display:flex; flex-direction:column; gap:2px; margin-bottom:8px; }
+.game-list { display:flex; flex-direction:column; gap:6px; max-height:300px; overflow-y:auto; }
+.game-item { display:flex; gap:8px; align-items:flex-start; padding:4px 0; border-bottom:1px solid #f1f1f1; font-size:0.9rem; }
+.game-item:last-child { border-bottom:none; }
+.game-item summary { display:flex; flex-direction:column; gap:2px; }
+.game-item small { color:#666; }
+.status-pill { display:inline-flex; align-items:center; gap:4px; padding:2px 6px; border-radius:12px; font-size:0.75rem; background:#eef2ff; color:#3b4a9f; }
+.status-pill.incomplete { background:#fff4e5; color:#b35600; }
+.skeleton-block { width:100%; min-height:200px; border-radius:8px; background:linear-gradient(90deg,#f0f0f0 25%,#e0e0e0 50%,#f0f0f0 75%); background-size:200% 100%; animation:pulse 1.4s ease-in-out infinite; }
+.skeleton-line { height:14px; margin:10px 0; border-radius:7px; background:rgba(255,255,255,0.4); }
+@keyframes pulse { 0% { background-position:200% 0; } 100% { background-position:-200% 0; } }
+.empty-block, .error-block { text-align:center; color:#666; padding:24px 12px; }
+.error-block button { margin-top:12px; }
+.summary-card { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:12px; }
+.summary-metric { display:flex; flex-direction:column; gap:4px; padding:12px; border:1px solid #ececec; border-radius:8px; background:#fafafa; }
+.summary-metric .emoji { font-size:1.5rem; }
+.summary-metric .label { color:#666; font-size:0.85rem; }
+.summary-metric .value { font-size:1.4rem; font-weight:bold; }
+.sparkline-card { flex:1 1 260px; }
+.sparkline-row { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+.sparkline-row canvas { flex:1; height:80px; }
+.leaderboard-card { display:flex; flex-direction:column; gap:12px; }
+.leaderboard-controls { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; }
+.leaderboard-controls input[type="search"] { padding:6px 10px; border-radius:6px; border:1px solid #ccc; min-width:180px; }
+.table-wrap { overflow-x:auto; }
+.leaderboard-table { width:100%; border-collapse:collapse; }
+.leaderboard-table th, .leaderboard-table td { padding:8px 12px; border-bottom:1px solid #eee; text-align:left; white-space:nowrap; }
+.leaderboard-table tbody tr:hover { background:#f5f8ff; }
+.badge { font-size:0.75rem; padding:2px 6px; border-radius:8px; background:#eef2ff; color:#3b4a9f; }
+.control-notes { font-size:0.8rem; color:#777; }
+.hidden { display:none !important; }
+@media (max-width:768px) {
+  .control-bar { flex-direction:column; align-items:flex-start; }
+  .chart-card { flex-direction:column; }
+  .game-selector { width:100%; border-left:none; border-top:1px solid #eee; padding-left:0; padding-top:12px; max-height:none; }
+  .tabs { flex-wrap:wrap; }
+  .leaderboard-controls { flex-direction:column; align-items:flex-start; }
+}
+</style>
+{% endblock %}
 {% block content %}
-<h3>成績與排行榜</h3>
-<div class="row">
-  <div class="card" style="flex:1; min-width: 320px;">
-    <h4>我的每局進度</h4>
-    <canvas id="lineChart"></canvas>
+<h3>成績中心</h3>
+
+<div class="card control-bar" id="controlBar">
+  <div class="control-group">
+    <label class="label">最近 N 局</label>
+    <div class="control-group inline">
+      <button class="toggle-btn active" data-limit="5">5</button>
+      <button class="toggle-btn" data-limit="10">10</button>
+      <button class="toggle-btn" data-limit="20">20</button>
+    </div>
   </div>
-  <div class="card" style="flex:1; min-width: 320px;">
-    <h4>排行榜</h4>
-    <table id="board"></table>
+  <div class="control-group inline">
+    <label>起始
+      <input type="date" id="filterFrom" aria-label="起始日期">
+    </label>
+    <label>結束
+      <input type="date" id="filterTo" aria-label="結束日期">
+    </label>
   </div>
-  <div class="card" style="flex:1; min-width: 320px;">
-    <h4>總覽</h4>
-    <div id="totals"></div>
+  <div class="control-group inline">
+    <label><input type="checkbox" id="toggleAverage" checked> 顯示平均趨勢</label>
+    <label><input type="checkbox" id="toggleCompleted"> 只顯示完成局</label>
   </div>
-  
+  <div class="control-group">
+    <span class="control-notes">調整篩選條件會即時更新圖表與列表</span>
+  </div>
+</div>
+
+<div class="tabs" role="tablist">
+  <button class="tab active" role="tab" aria-selected="true" data-target="tab-progress">進度圖</button>
+  <button class="tab" role="tab" aria-selected="false" data-target="tab-stats">我的統計</button>
+  <button class="tab" role="tab" aria-selected="false" data-target="tab-leaderboard">排行榜</button>
+</div>
+
+<div id="tab-progress" class="tab-panel active" role="tabpanel" aria-labelledby="progress-tab">
+  <div id="progressSkeleton" class="skeleton-block">
+    <div class="skeleton-line" style="width:80%;"></div>
+    <div class="skeleton-line" style="width:65%;"></div>
+    <div class="skeleton-line" style="width:90%;"></div>
+    <div class="skeleton-line" style="width:55%;"></div>
+  </div>
+  <div id="progressError" class="error-block hidden">
+    <div>資料載入失敗，請稍後重試。</div>
+    <button id="retryProgress">重新整理</button>
+  </div>
+  <div id="progressEmpty" class="empty-block hidden">
+    <p>目前沒有任何遊戲記錄。</p>
+    <p><a href="/">開始一場新遊戲</a> 來累積數據吧！</p>
+  </div>
+  <div id="progressContent" class="progress-layout hidden">
+    <div class="card chart-card" aria-live="polite">
+      <div class="chart-wrap">
+        <canvas id="progressChart" aria-label="球局進度圖" role="img"></canvas>
+      </div>
+      <aside class="game-selector" aria-label="球局篩選">
+        <div class="game-selector-header">
+          <strong>局列表</strong>
+          <small>勾選要顯示的局（預設最近 5 局）</small>
+        </div>
+        <div id="gameList" class="game-list"></div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<div id="tab-stats" class="tab-panel" role="tabpanel" aria-labelledby="stats-tab">
+  <div id="summarySkeleton" class="skeleton-block">
+    <div class="skeleton-line" style="width:50%;"></div>
+    <div class="skeleton-line" style="width:35%;"></div>
+    <div class="skeleton-line" style="width:70%;"></div>
+  </div>
+  <div id="summaryError" class="error-block hidden">
+    <div>統計資料載入失敗。</div>
+    <button id="retrySummary">重新整理</button>
+  </div>
+  <div id="statsContent" class="hidden">
+    <div class="row">
+      <div class="card summary-card" aria-live="polite">
+        <div class="summary-metric">
+          <span class="emoji">🕹️</span>
+          <span class="label">遊戲數</span>
+          <span class="value" id="summaryGames">-</span>
+        </div>
+        <div class="summary-metric">
+          <span class="emoji">🎯</span>
+          <span class="label">總步數</span>
+          <span class="value" id="summaryShots">-</span>
+        </div>
+        <div class="summary-metric">
+          <span class="emoji">⚡</span>
+          <span class="label">平均每局步數</span>
+          <span class="value" id="summaryAvg">-</span>
+        </div>
+      </div>
+      <div class="card sparkline-card">
+        <h4>最近趨勢</h4>
+        <div class="sparkline-row">
+          <canvas id="sparkline7" aria-label="最近 7 天趨勢" role="img"></canvas>
+          <span>7 天</span>
+        </div>
+        <div class="sparkline-row">
+          <canvas id="sparkline30" aria-label="最近 30 天趨勢" role="img"></canvas>
+          <span>30 天</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="tab-leaderboard" class="tab-panel" role="tabpanel" aria-labelledby="leaderboard-tab">
+  <div class="card leaderboard-card">
+    <div class="leaderboard-controls">
+      <input type="search" id="leaderboardSearch" placeholder="搜尋玩家..." aria-label="搜尋玩家">
+      <div class="control-group inline">
+        <span class="label">排序</span>
+        <button class="toggle-btn active" data-sort="games">遊戲數</button>
+        <button class="toggle-btn" data-sort="avg_steps">平均步數</button>
+      </div>
+    </div>
+    <div id="leaderboardSkeleton" class="skeleton-block">
+      <div class="skeleton-line" style="width:70%;"></div>
+      <div class="skeleton-line" style="width:45%;"></div>
+      <div class="skeleton-line" style="width:60%;"></div>
+    </div>
+    <div id="leaderboardError" class="error-block hidden">
+      <div>排行榜載入失敗。</div>
+      <button id="retryLeaderboard">重新整理</button>
+    </div>
+    <div id="leaderboardContent" class="table-wrap hidden">
+      <table class="leaderboard-table" id="leaderboardTable">
+        <thead>
+          <tr>
+            <th scope="col">玩家</th>
+            <th scope="col">遊戲數</th>
+            <th scope="col">總步數</th>
+            <th scope="col">平均步數/局</th>
+            <th scope="col">勝率</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
 </div>
 
 <script>
-async function loadStats() {
-  const me = await fetch('/api/stats/me').then(r=>r.json());
-  const lb = await fetch('/api/leaderboard').then(r=>r.json());
+document.addEventListener('DOMContentLoaded', () => {
+  const state = {
+    limit: 5,
+    dateFrom: null,
+    dateTo: null,
+    showAverage: true,
+    onlyCompleted: false,
+    stats: null,
+    summary: null,
+    leaderboard: [],
+    selectedGames: new Set(),
+    sortLeaderboard: 'games',
+    chart: null,
+    spark7: null,
+    spark30: null,
+  };
 
-  // Build line chart of balls remaining per step for each game
-  const ctx = document.getElementById('lineChart').getContext('2d');
-  const datasets = me.series.map((s, idx) => ({
-    label: 'Game ' + s.game_id,
-    data: s.points.map(p=>({x:p.x,y:p.y})),
-    borderColor: `hsl(${(idx*47)%360},70%,50%)`,
-    fill: false,
-  }));
-  new Chart(ctx, { type: 'line', data: { datasets }, options: { scales: { x: { type:'linear', title:{display:true,text:'Step'} }, y: { title:{display:true,text:'Balls Remaining'} } } } });
+  const els = {
+    controlBar: document.getElementById('controlBar'),
+    limitButtons: Array.from(document.querySelectorAll('[data-limit]')),
+    filterFrom: document.getElementById('filterFrom'),
+    filterTo: document.getElementById('filterTo'),
+    toggleAverage: document.getElementById('toggleAverage'),
+    toggleCompleted: document.getElementById('toggleCompleted'),
+    tabs: Array.from(document.querySelectorAll('.tab')),
+    panels: Array.from(document.querySelectorAll('.tab-panel')),
+    progressSkeleton: document.getElementById('progressSkeleton'),
+    progressError: document.getElementById('progressError'),
+    progressEmpty: document.getElementById('progressEmpty'),
+    progressContent: document.getElementById('progressContent'),
+    retryProgress: document.getElementById('retryProgress'),
+    gameList: document.getElementById('gameList'),
+    progressChart: document.getElementById('progressChart'),
+    summarySkeleton: document.getElementById('summarySkeleton'),
+    summaryError: document.getElementById('summaryError'),
+    statsContent: document.getElementById('statsContent'),
+    summaryGames: document.getElementById('summaryGames'),
+    summaryShots: document.getElementById('summaryShots'),
+    summaryAvg: document.getElementById('summaryAvg'),
+    retrySummary: document.getElementById('retrySummary'),
+    sparkline7: document.getElementById('sparkline7'),
+    sparkline30: document.getElementById('sparkline30'),
+    leaderboardSkeleton: document.getElementById('leaderboardSkeleton'),
+    leaderboardError: document.getElementById('leaderboardError'),
+    leaderboardContent: document.getElementById('leaderboardContent'),
+    leaderboardTable: document.querySelector('#leaderboardTable tbody'),
+    searchInput: document.getElementById('leaderboardSearch'),
+    retryLeaderboard: document.getElementById('retryLeaderboard'),
+    leaderboardSortButtons: Array.from(document.querySelectorAll('[data-sort]')),
+  };
 
-  // Totals
-  document.getElementById('totals').innerText = `總遊戲: ${me.totals.games}，總步驟: ${me.totals.shots}`;
+  setupTabs();
+  setupControlBar();
+  setupLeaderboardControls();
+  fetchSummary();
+  fetchStats();
+  fetchLeaderboard();
 
-  // Leaderboard
-  const t = document.getElementById('board');
-  t.innerHTML = '<tr><th>玩家</th><th>遊戲數</th><th>步驟數</th></tr>' + lb.leaderboard.map(r=>`<tr><td>${r.user}</td><td>${r.games}</td><td>${r.shots}</td></tr>`).join('');
-}
-loadStats();
+  function setupTabs() {
+    els.tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const target = tab.dataset.target;
+        els.tabs.forEach(t => t.classList.toggle('active', t === tab));
+        els.panels.forEach(panel => panel.classList.toggle('active', panel.id === target));
+      });
+    });
+  }
+
+  function setupControlBar() {
+    els.limitButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        els.limitButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        state.limit = Number(btn.dataset.limit);
+        fetchStats();
+      });
+    });
+
+    els.filterFrom.addEventListener('change', () => {
+      state.dateFrom = els.filterFrom.value || null;
+      fetchStats();
+    });
+    els.filterTo.addEventListener('change', () => {
+      state.dateTo = els.filterTo.value || null;
+      fetchStats();
+    });
+    els.toggleAverage.addEventListener('change', () => {
+      state.showAverage = els.toggleAverage.checked;
+      renderProgressChart();
+    });
+    els.toggleCompleted.addEventListener('change', () => {
+      state.onlyCompleted = els.toggleCompleted.checked;
+      syncSelectionWithFilters();
+      renderGameList();
+      renderProgressChart();
+    });
+    els.retryProgress.addEventListener('click', () => fetchStats());
+    els.retrySummary.addEventListener('click', () => fetchSummary());
+  }
+
+  function setupLeaderboardControls() {
+    els.searchInput.addEventListener('input', () => renderLeaderboard());
+    els.retryLeaderboard.addEventListener('click', () => fetchLeaderboard());
+    els.leaderboardSortButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        els.leaderboardSortButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        state.sortLeaderboard = btn.dataset.sort;
+        fetchLeaderboard();
+      });
+    });
+  }
+
+  async function fetchStats() {
+    toggleProgressState({ skeleton: true });
+    const params = new URLSearchParams();
+    params.set('limit_games', state.limit);
+    if (state.dateFrom) params.set('from', state.dateFrom);
+    if (state.dateTo) params.set('to', state.dateTo);
+    try {
+      const res = await fetch(`/api/stats/me?${params.toString()}`);
+      if (!res.ok) throw new Error('stats fetch failed');
+      const data = await res.json();
+      state.stats = data;
+      if (data.filters) {
+        if (data.filters.from && els.filterFrom.value !== data.filters.from) els.filterFrom.value = data.filters.from;
+        if (!data.filters.from) els.filterFrom.value = '';
+        if (data.filters.to && els.filterTo.value !== data.filters.to) els.filterTo.value = data.filters.to;
+        if (!data.filters.to) els.filterTo.value = '';
+      }
+      syncSelectionWithFilters(true);
+      renderGameList();
+      renderProgressChart();
+      toggleProgressState({ content: true });
+    } catch (err) {
+      console.error(err);
+      toggleProgressState({ error: true });
+    }
+  }
+
+  async function fetchSummary() {
+    toggleSummaryState({ skeleton: true });
+    try {
+      const res = await fetch('/api/stats/summary');
+      if (!res.ok) throw new Error('summary fetch failed');
+      const data = await res.json();
+      state.summary = data;
+      renderSummary();
+      toggleSummaryState({ content: true });
+    } catch (err) {
+      console.error(err);
+      toggleSummaryState({ error: true });
+    }
+  }
+
+  async function fetchLeaderboard() {
+    toggleLeaderboardState({ skeleton: true });
+    const params = new URLSearchParams();
+    if (state.sortLeaderboard === 'avg_steps') params.set('sort', 'avg_steps');
+    try {
+      const res = await fetch(`/api/leaderboard?${params.toString()}`);
+      if (!res.ok) throw new Error('leaderboard fetch failed');
+      const data = await res.json();
+      state.leaderboard = data.leaderboard || [];
+      renderLeaderboard();
+      toggleLeaderboardState({ content: true });
+    } catch (err) {
+      console.error(err);
+      toggleLeaderboardState({ error: true });
+    }
+  }
+
+  function toggleProgressState({ skeleton = false, error = false, empty = false, content = false }) {
+    els.progressSkeleton.classList.toggle('hidden', !skeleton);
+    els.progressError.classList.toggle('hidden', !error);
+    els.progressEmpty.classList.toggle('hidden', !empty);
+    els.progressContent.classList.toggle('hidden', !content);
+  }
+
+  function toggleSummaryState({ skeleton = false, error = false, content = false }) {
+    els.summarySkeleton.classList.toggle('hidden', !skeleton);
+    els.summaryError.classList.toggle('hidden', !error);
+    els.statsContent.classList.toggle('hidden', !content);
+  }
+
+  function toggleLeaderboardState({ skeleton = false, error = false, content = false }) {
+    els.leaderboardSkeleton.classList.toggle('hidden', !skeleton);
+    els.leaderboardError.classList.toggle('hidden', !error);
+    els.leaderboardContent.classList.toggle('hidden', !content);
+  }
+
+  function syncSelectionWithFilters(resetIfEmpty = false) {
+    if (!state.stats) return;
+    const summaries = state.stats.game_summaries || [];
+    const eligibleIds = summaries
+      .filter(s => !state.onlyCompleted || s.completed)
+      .map(s => s.game_id);
+
+    const newSelection = new Set();
+    for (const id of state.selectedGames) {
+      if (eligibleIds.includes(id)) newSelection.add(id);
+    }
+    if ((!newSelection.size && resetIfEmpty) || (newSelection.size === 0 && eligibleIds.length > 0 && state.selectedGames.size === 0)) {
+      eligibleIds.slice(0, Math.min(5, eligibleIds.length)).forEach(id => newSelection.add(id));
+    }
+    state.selectedGames = newSelection;
+  }
+
+  function renderGameList() {
+    if (!state.stats) return;
+    const summaries = state.stats.game_summaries || [];
+    els.gameList.innerHTML = '';
+    if (!summaries.length) {
+      toggleProgressState({ empty: true });
+      return;
+    }
+
+    const filtered = summaries.filter(s => !state.onlyCompleted || s.completed);
+    if (!filtered.length) {
+      els.gameList.innerHTML = '<div class="empty-block">篩選條件下沒有完成的局。</div>';
+      return;
+    }
+
+    const summaryMap = new Map(summaries.map(s => [s.game_id, s]));
+
+    filtered.forEach(summary => {
+      const wrap = document.createElement('label');
+      wrap.className = 'game-item';
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = summary.game_id;
+      checkbox.checked = state.selectedGames.has(summary.game_id);
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          state.selectedGames.add(summary.game_id);
+        } else {
+          state.selectedGames.delete(summary.game_id);
+        }
+        if (state.selectedGames.size === 0) {
+          // Ensure at least one dataset stays visible.
+          state.selectedGames.add(summary.game_id);
+          checkbox.checked = true;
+        }
+        renderProgressChart();
+      });
+
+      const info = document.createElement('summary');
+      info.innerHTML = `
+        <strong>Game #${summary.game_id}</strong>
+        <small>${formatDate(summary.started_at)}｜步數 ${summary.total_steps}｜${summary.completed ? '完成' : '未完成'}</small>
+      `;
+
+      const status = document.createElement('span');
+      status.className = `status-pill ${summary.completed ? '' : 'incomplete'}`;
+      status.textContent = summary.completed ? '完成' : '未完成';
+
+      wrap.appendChild(checkbox);
+      wrap.appendChild(info);
+      wrap.appendChild(status);
+      els.gameList.appendChild(wrap);
+    });
+  }
+
+  function renderProgressChart() {
+    if (!state.stats) return;
+    const series = state.stats.series || [];
+    if (!series.length) {
+      toggleProgressState({ empty: true });
+      return;
+    }
+
+    const summaryMap = new Map((state.stats.game_summaries || []).map(s => [s.game_id, s]));
+    const filteredSeries = series.filter(s => {
+      const summary = summaryMap.get(s.game_id);
+      if (!summary) return false;
+      if (state.onlyCompleted && !summary.completed) return false;
+      return state.selectedGames.size === 0 || state.selectedGames.has(s.game_id);
+    });
+
+    if (!filteredSeries.length && state.selectedGames.size === 0) {
+      filteredSeries.push(...series.slice(0, Math.min(5, series.length)));
+    }
+
+    const datasets = [];
+    if (state.showAverage && Array.isArray(state.stats.avg_series) && state.stats.avg_series.length) {
+      const color = 'rgba(45,108,223,0.9)';
+      datasets.push({
+        label: '平均趨勢',
+        data: downsample(state.stats.avg_series, 150),
+        borderColor: color,
+        backgroundColor: 'rgba(45,108,223,0.15)',
+        borderWidth: 3,
+        tension: 0.2,
+        pointRadius: 0,
+        fill: false,
+        isAverage: true,
+        _baseColor: color,
+        _mutedColor: 'rgba(45,108,223,0.2)',
+        meta: { label: '平均趨勢' },
+      });
+    }
+
+    filteredSeries.forEach((serie, idx) => {
+      const summary = summaryMap.get(serie.game_id);
+      const hue = (idx * 47) % 360;
+      const color = `hsla(${hue}, 70%, 50%, 0.85)`;
+      const muted = `hsla(${hue}, 70%, 50%, 0.2)`;
+      const hover = `hsla(${hue}, 70%, 40%, 1)`;
+      const label = `Game #${serie.game_id}`;
+      datasets.push({
+        label,
+        data: downsample(serie.points || [], 250),
+        borderColor: color,
+        backgroundColor: 'transparent',
+        borderWidth: 1.6,
+        tension: 0.18,
+        pointRadius: 0,
+        fill: false,
+        isAverage: false,
+        _baseColor: color,
+        _mutedColor: muted,
+        _hoverColor: hover,
+        meta: {
+          gameId: serie.game_id,
+          started_at: summary?.started_at || null,
+          duration_seconds: summary?.duration_seconds || null,
+          completed: summary?.completed || false,
+        },
+      });
+    });
+
+    if (!datasets.length) {
+      els.progressContent.classList.add('hidden');
+      els.progressEmpty.classList.remove('hidden');
+      return;
+    }
+
+    els.progressContent.classList.remove('hidden');
+    els.progressEmpty.classList.add('hidden');
+
+    if (!state.chart) {
+      state.chart = new Chart(els.progressChart.getContext('2d'), {
+        type: 'line',
+        data: { datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          parsing: false,
+          interaction: { intersect: false, mode: 'nearest' },
+          scales: {
+            x: {
+              type: 'linear',
+              title: { display: true, text: 'Step' },
+              ticks: { precision: 0 },
+            },
+            y: {
+              title: { display: true, text: 'Balls Remaining' },
+              ticks: { precision: 0 },
+            },
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                title(context) {
+                  const ds = context[0].dataset;
+                  if (ds.isAverage) return ds.label;
+                  const meta = ds.meta || {};
+                  const date = meta.started_at ? formatDate(meta.started_at) : '';
+                  const completed = meta.completed ? '✓' : '✕';
+                  return `${ds.label}${date ? '｜' + date : ''}｜完成 ${completed}`;
+                },
+                label(ctx) {
+                  return `Step ${ctx.parsed.x}｜剩餘球數 ${ctx.parsed.y}`;
+                },
+                afterLabel(ctx) {
+                  const point = ctx.raw || {};
+                  if (point.elapsed_seconds != null) {
+                    return `用時 ${formatDuration(point.elapsed_seconds)}`;
+                  }
+                  return null;
+                },
+              },
+            },
+          },
+          onHover(evt, activeEls, chart) {
+            if (!chart) return;
+            const index = activeEls.length ? activeEls[0].datasetIndex : null;
+            updateHoverStyles(chart, index);
+          },
+        },
+      });
+    } else {
+      state.chart.data.datasets = datasets;
+      state.chart.update();
+    }
+  }
+
+  function updateHoverStyles(chart, activeIndex) {
+    chart.data.datasets.forEach((dataset, idx) => {
+      const baseWidth = dataset.isAverage ? 3 : 1.6;
+      if (activeIndex === null) {
+        dataset.borderWidth = baseWidth;
+        dataset.borderColor = dataset._baseColor;
+      } else if (idx === activeIndex) {
+        dataset.borderWidth = baseWidth * 1.8;
+        dataset.borderColor = dataset._hoverColor || dataset._baseColor;
+      } else {
+        dataset.borderWidth = baseWidth * 0.6;
+        dataset.borderColor = dataset._mutedColor || dataset._baseColor;
+      }
+    });
+    chart.update('none');
+  }
+
+  function renderSummary() {
+    if (!state.summary) return;
+    const { total_games, total_shots, avg_steps_per_game, trend } = state.summary;
+    els.summaryGames.textContent = total_games != null ? total_games.toLocaleString() : '-';
+    els.summaryShots.textContent = total_shots != null ? total_shots.toLocaleString() : '-';
+    els.summaryAvg.textContent = avg_steps_per_game != null ? avg_steps_per_game.toFixed(2) : '-';
+
+    renderSparkline(els.sparkline7, trend?.['7d'] || []);
+    renderSparkline(els.sparkline30, trend?.['30d'] || []);
+  }
+
+  function renderSparkline(canvas, points) {
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!points.length) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.font = '12px sans-serif';
+      ctx.fillStyle = '#888';
+      ctx.fillText('無資料', 10, 20);
+      return;
+    }
+
+    const data = points.map(p => ({ x: p.date, y: p.avg_steps || 0 }));
+    if (canvas._chart) {
+      canvas._chart.data.labels = points.map(p => p.date);
+      canvas._chart.data.datasets[0].data = data.map(d => d.y);
+      canvas._chart.update();
+      return;
+    }
+
+    canvas._chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: points.map(p => p.date),
+        datasets: [{
+          data: data.map(d => d.y),
+          borderColor: 'rgba(45,108,223,0.8)',
+          backgroundColor: 'rgba(45,108,223,0.15)',
+          tension: 0.3,
+          fill: true,
+          pointRadius: 0,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: {
+          x: { display: false },
+          y: { display: false },
+        },
+      },
+    });
+  }
+
+  function renderLeaderboard() {
+    const rows = state.leaderboard || [];
+    const filter = (els.searchInput.value || '').toLowerCase().trim();
+    const filtered = rows.filter(row => !filter || row.user.toLowerCase().includes(filter));
+
+    els.leaderboardTable.innerHTML = '';
+    if (!filtered.length) {
+      els.leaderboardTable.innerHTML = '<tr><td colspan="5">找不到符合條件的玩家。</td></tr>';
+      return;
+    }
+
+    filtered.forEach((row, index) => {
+      const tr = document.createElement('tr');
+      const avgSteps = row.avg_steps_per_game != null ? row.avg_steps_per_game.toFixed(2) : '--';
+      const winRate = row.win_rate != null ? `${(row.win_rate * 100).toFixed(1)}%` : '--';
+      tr.innerHTML = `
+        <td>${row.user}${index < 3 ? ` <span class="badge">Top ${index + 1}</span>` : ''}</td>
+        <td>${row.games.toLocaleString()}</td>
+        <td>${row.shots.toLocaleString()}</td>
+        <td>${avgSteps}</td>
+        <td>${winRate}</td>
+      `;
+      els.leaderboardTable.appendChild(tr);
+    });
+  }
+
+  function downsample(points, maxPoints) {
+    if (!Array.isArray(points) || points.length <= maxPoints) return points || [];
+    const step = Math.ceil(points.length / maxPoints);
+    const sampled = [];
+    for (let i = 0; i < points.length; i += step) {
+      sampled.push(points[i]);
+    }
+    if (sampled[sampled.length - 1] !== points[points.length - 1]) {
+      sampled.push(points[points.length - 1]);
+    }
+    return sampled;
+  }
+
+  function formatDate(iso) {
+    if (!iso) return '';
+    try {
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return iso;
+      return d.toISOString().slice(0, 10);
+    } catch {
+      return iso;
+    }
+  }
+
+  function formatDuration(seconds) {
+    if (!seconds || Number.isNaN(seconds)) return '—';
+    const total = Math.max(0, Math.round(seconds));
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+});
 </script>
 {% endblock %}
-

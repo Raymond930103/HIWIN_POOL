@@ -18,7 +18,7 @@ from ultralytics import YOLO
 from main.configs.table import TABLE_W_CM, TABLE_H_CM
 
 # === 參數 ===
-CAM_URL     = 0
+CAM_URL     = 1
 SAVE_DIR    = Path("captures_json"); SAVE_DIR.mkdir(exist_ok=True)
 CONF_THRES  = 0.10
 IOU_THRES   = 0.50

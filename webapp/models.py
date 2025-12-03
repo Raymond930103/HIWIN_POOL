@@ -28,6 +28,10 @@ class Game(db.Model):
     started_at = Column(DateTime, default=datetime.utcnow)
     ended_at = Column(DateTime, nullable=True)
 
+    __table_args__ = (
+        db.Index("ix_games_user_started", "user_id", "started_at"),
+    )
+
     user = relationship("User", back_populates="games")
     shots = relationship("Shot", back_populates="game", order_by="Shot.step_number")
 
@@ -45,5 +49,9 @@ class Shot(db.Model):
     image_path = Column(String(255), nullable=True)   # static file path for visualization
     just_capture = Column(Boolean, default=False)     # true if capture-only
 
-    game = relationship("Game", back_populates="shots")
+    __table_args__ = (
+        db.Index("ix_shots_game_step", "game_id", "step_number"),
+        db.Index("ix_shots_game_timestamp", "game_id", "timestamp"),
+    )
 
+    game = relationship("Game", back_populates="shots")

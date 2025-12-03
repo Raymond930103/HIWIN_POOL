@@ -1,11 +1,15 @@
 import json
-from datetime import datetime
+from collections import defaultdict
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional, Tuple
+from threading import RLock
+from typing import Dict, Optional, Tuple
 
 from flask import Blueprint, render_template, request, jsonify, url_for, current_app
 import re
 from flask_login import login_required, current_user
+from sqlalchemy.orm import joinedload
+from sqlalchemy import func
 
 from .config import Config
 from .database import db
@@ -26,6 +30,10 @@ from main.run_shot import get_last_plan_shot_error
 
 
 game_bp = Blueprint("game", __name__)
+
+AVG_SERIES_CACHE_TTL_SEC = 300  # five minutes
+_avg_series_cache: Dict[Tuple, Tuple[float, list]] = {}
+_avg_series_cache_lock = RLock()
 
 
 @game_bp.route("/")
@@ -100,6 +108,130 @@ def _current_turn(game: Game) -> str:
     if not last:
         return "robot" if game.order == "first" else "human"
     return "robot" if last.just_capture else "human"
+
+
+def _parse_date_arg(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def _parse_bool_arg(value: Optional[str]) -> bool:
+    if value is None:
+        return False
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_limit_arg(value: Optional[str]) -> Optional[int]:
+    if not value:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _extract_stats_query_args(args) -> Dict[str, Optional[object]]:
+    raw_from = args.get("from")
+    raw_to = args.get("to")
+    date_from = _parse_date_arg(raw_from)
+    date_to = _parse_date_arg(raw_to)
+    limit_games = _parse_limit_arg(args.get("limit_games"))
+    only_last = _parse_bool_arg(args.get("only_last"))
+
+    return {
+        "date_from": date_from,
+        "date_to": (date_to + timedelta(days=1)) if date_to else None,
+        "limit_games": limit_games,
+        "only_last": only_last,
+        "raw_from": raw_from if date_from else None,
+        "raw_to": raw_to if date_to else None,
+    }
+
+
+def _avg_series_cache_key(user_id: int, filters: Dict[str, Optional[object]]) -> Tuple:
+    return (
+        user_id,
+        filters.get("raw_from"),
+        filters.get("raw_to"),
+        filters.get("limit_games"),
+        filters.get("only_last"),
+    )
+
+
+def _get_cached_avg_series(cache_key: Tuple):
+    with _avg_series_cache_lock:
+        cached = _avg_series_cache.get(cache_key)
+        if not cached:
+            return None
+        timestamp, payload = cached
+        if time.time() - timestamp > AVG_SERIES_CACHE_TTL_SEC:
+            # Expired
+            _avg_series_cache.pop(cache_key, None)
+            return None
+        return payload
+
+
+def _set_cached_avg_series(cache_key: Tuple, payload):
+    with _avg_series_cache_lock:
+        _avg_series_cache[cache_key] = (time.time(), payload)
+
+
+def _collect_game_data(game: Game, step_accumulator: Optional[defaultdict] = None) -> Dict[str, object]:
+    points = []
+    if not game.shots:
+        return {
+            "points": points,
+            "last_step": 0,
+            "first_timestamp": None,
+            "last_timestamp": None,
+            "duration_seconds": None,
+            "shot_count": 0,
+        }
+
+    first_ts = game.shots[0].timestamp
+    last_ts = None
+    last_step = 0
+
+    for shot in game.shots:
+        try:
+            payload = json.loads(shot.balls_json or "{}")
+        except (TypeError, json.JSONDecodeError):
+            payload = {}
+        balls = payload.get("balls", [])
+        remaining = _balls_remaining(balls)
+
+        point = {"x": shot.step_number, "y": remaining}
+        if shot.timestamp:
+            point["t"] = shot.timestamp.isoformat()
+            if first_ts:
+                point["elapsed_seconds"] = (shot.timestamp - first_ts).total_seconds()
+        points.append(point)
+
+        last_step = shot.step_number
+        last_ts = shot.timestamp or last_ts
+
+        if step_accumulator is not None:
+            agg = step_accumulator[shot.step_number]
+            agg["sum"] += remaining
+            agg["count"] += 1
+
+    duration_seconds = None
+    if first_ts and last_ts:
+        duration_seconds = (last_ts - first_ts).total_seconds()
+
+    return {
+        "points": points,
+        "last_step": last_step if points else 0,
+        "first_timestamp": first_ts,
+        "last_timestamp": last_ts,
+        "duration_seconds": duration_seconds,
+        "shot_count": len(points),
+    }
 
 
 @game_bp.route("/api/start_game", methods=["POST"])
@@ -468,48 +600,225 @@ def scoreboard():
 @game_bp.route("/api/stats/me")
 @login_required
 def stats_me():
-    return _stats_for_user(current_user.id)
+    filters = _extract_stats_query_args(request.args)
+    return _stats_for_user(current_user.id, filters)
 
 
 @game_bp.route("/api/stats/user/<int:user_id>")
 @login_required
 def stats_user(user_id: int):
-    return _stats_for_user(user_id)
+    filters = _extract_stats_query_args(request.args)
+    return _stats_for_user(user_id, filters)
 
 
-def _stats_for_user(user_id: int):
-    games = Game.query.filter_by(user_id=user_id).all()
+@game_bp.route("/api/stats/summary")
+@login_required
+def stats_summary():
+    return _stats_summary_for_user(current_user.id)
+
+
+def _stats_for_user(user_id: int, filters: Dict[str, Optional[object]]):
+    user_exists = User.query.get(user_id)
+    if not user_exists:
+        return jsonify({"error": "user not found"}), 404
+
+    query = Game.query.filter(Game.user_id == user_id)
+    if filters.get("date_from"):
+        query = query.filter(Game.started_at >= filters["date_from"])
+    if filters.get("date_to"):
+        query = query.filter(Game.started_at < filters["date_to"])
+
+    query = query.order_by(Game.started_at.desc())
+    limit = 1 if filters.get("only_last") else filters.get("limit_games")
+    if limit:
+        query = query.limit(limit)
+
+    games = query.options(joinedload(Game.shots)).all()
+
+    cache_key = _avg_series_cache_key(user_id, filters)
+    avg_series = _get_cached_avg_series(cache_key)
+    step_accumulator = defaultdict(lambda: {"sum": 0.0, "count": 0}) if avg_series is None else None
+
     series = []
-    all_shots = Shot.query.join(Game, Shot.game_id == Game.id).filter(Game.user_id == user_id).order_by(Shot.timestamp).all()
+    game_summaries = []
+    total_shots = 0
+    completed_games = 0
 
-    # Line series: balls remaining per step in each game
-    for g in games:
-        pts = []
-        for s in g.shots:
-            balls = json.loads(s.balls_json).get("balls", [])
-            pts.append({"x": s.step_number, "y": _balls_remaining(balls)})
-        series.append({"game_id": g.id, "points": pts})
+    for game in games:
+        game_payload = _collect_game_data(game, step_accumulator)
+        points = game_payload["points"]
+        total_shots += game_payload["shot_count"]
+        if game.status == "ended":
+            completed_games += 1
 
-    # Leaderboard metrics for this user
-    total_games = len(games)
-    total_shots = len(all_shots)
+        series.append({
+            "game_id": game.id,
+            "points": points,
+            "started_at": game.started_at.isoformat() if game.started_at else None,
+            "ended_at": game.ended_at.isoformat() if game.ended_at else None,
+            "status": game.status,
+            "mode": game.mode,
+            "difficulty": game.difficulty,
+        })
+
+        game_summaries.append({
+            "game_id": game.id,
+            "total_steps": game_payload["last_step"],
+            "shot_count": game_payload["shot_count"],
+            "completed": game.status == "ended",
+            "started_at": game.started_at.isoformat() if game.started_at else None,
+            "ended_at": game.ended_at.isoformat() if game.ended_at else None,
+            "duration_seconds": game_payload["duration_seconds"],
+            "last_updated_at": game_payload["last_timestamp"].isoformat() if game_payload["last_timestamp"] else None,
+            "mode": game.mode,
+            "difficulty": game.difficulty,
+        })
+
+    if step_accumulator is not None:
+        avg_series = []
+        for step, stats in sorted(step_accumulator.items()):
+            count = stats["count"]
+            if not count:
+                continue
+            avg_series.append({"x": step, "y": stats["sum"] / count})
+        _set_cached_avg_series(cache_key, avg_series)
+    elif avg_series is None:
+        avg_series = []
+
+    applied_limit = 1 if filters.get("only_last") else filters.get("limit_games")
 
     return jsonify({
         "series": series,
-        "totals": {"games": total_games, "shots": total_shots},
+        "avg_series": avg_series,
+        "game_summaries": game_summaries,
+        "totals": {
+            "games": len(games),
+            "completed_games": completed_games,
+            "shots": total_shots,
+        },
+        "filters": {
+            "from": filters.get("raw_from"),
+            "to": filters.get("raw_to"),
+            "limit_games": applied_limit,
+            "only_last": bool(filters.get("only_last")),
+        },
     })
+
+
+def _stats_summary_for_user(user_id: int):
+    user_exists = User.query.get(user_id)
+    if not user_exists:
+        return jsonify({"error": "user not found"}), 404
+
+    total_games = db.session.query(func.count(Game.id)).filter(Game.user_id == user_id).scalar() or 0
+    total_shots = (
+        db.session.query(func.count(Shot.id))
+        .join(Game, Shot.game_id == Game.id)
+        .filter(Game.user_id == user_id)
+        .scalar()
+        or 0
+    )
+
+    avg_steps = (total_shots / total_games) if total_games else 0.0
+    trend = _build_summary_trend(user_id)
+
+    return jsonify({
+        "total_games": total_games,
+        "total_shots": total_shots,
+        "avg_steps_per_game": avg_steps,
+        "trend": trend,
+    })
+
+
+def _build_summary_trend(user_id: int) -> Dict[str, list]:
+    today = datetime.utcnow().date()
+    start_30 = today - timedelta(days=29)
+    start_dt = datetime.combine(start_30, datetime.min.time())
+
+    games = (
+        Game.query.filter(Game.user_id == user_id, Game.started_at >= start_dt)
+        .options(joinedload(Game.shots))
+        .all()
+    )
+
+    per_day = {}
+    for game in games:
+        if not game.started_at:
+            continue
+        day = game.started_at.date()
+        if day < start_30:
+            continue
+        stats = per_day.setdefault(day, {"games": 0, "steps": 0})
+        stats["games"] += 1
+        last_step = game.shots[-1].step_number if game.shots else 0
+        stats["steps"] += last_step
+
+    span = (today - start_30).days + 1
+    trend_30 = []
+    for offset in range(span):
+        day = start_30 + timedelta(days=offset)
+        stats = per_day.get(day, {"games": 0, "steps": 0})
+        games_count = stats["games"]
+        steps = stats["steps"]
+        avg_steps = (steps / games_count) if games_count else 0.0
+        trend_30.append({
+            "date": day.isoformat(),
+            "games": games_count,
+            "steps": steps,
+            "avg_steps": avg_steps,
+        })
+
+    trend_7 = trend_30[-7:] if len(trend_30) >= 7 else trend_30[:]
+    return {"7d": trend_7, "30d": trend_30}
 
 
 @game_bp.route("/api/leaderboard")
 @login_required
 def leaderboard():
-    # Simple leaderboard by total shots (lower is better) and total games
+    sort_key = request.args.get("sort", "").lower()
+
     users = User.query.all()
+    game_counts = dict(
+        db.session.query(Game.user_id, func.count(Game.id))
+        .group_by(Game.user_id)
+        .all()
+    )
+    shot_counts = dict(
+        db.session.query(Game.user_id, func.count(Shot.id))
+        .join(Game, Shot.game_id == Game.id)
+        .group_by(Game.user_id)
+        .all()
+    )
+    completed_counts = dict(
+        db.session.query(Game.user_id, func.count(Game.id))
+        .filter(Game.status == "ended")
+        .group_by(Game.user_id)
+        .all()
+    )
+
     ranks = []
-    for u in users:
-        games = Game.query.filter_by(user_id=u.id).count()
-        shots = Shot.query.join(Game, Shot.game_id == Game.id).filter(Game.user_id == u.id).count()
-        ranks.append({"user": u.username, "games": games, "shots": shots})
-    # Sort: more games desc, fewer shots asc
-    ranks.sort(key=lambda r: (-r["games"], r["shots"]))
-    return jsonify({"leaderboard": ranks})
+    for user in users:
+        games = game_counts.get(user.id, 0)
+        shots = shot_counts.get(user.id, 0)
+        avg_steps = (shots / games) if games else None
+        completed_games = completed_counts.get(user.id, 0)
+        ranks.append({
+            "user": user.username,
+            "games": games,
+            "shots": shots,
+            "avg_steps_per_game": avg_steps,
+            # Winner data is not currently tracked; expose null for UI fallback.
+            "win_rate": None,
+            "completed_games": completed_games,
+        })
+
+    if sort_key == "avg_steps":
+        ranks.sort(key=lambda r: (
+            float("inf") if r["avg_steps_per_game"] is None else r["avg_steps_per_game"],
+            -r["games"],
+            r["shots"],
+        ))
+    else:
+        ranks.sort(key=lambda r: (-r["games"], r["shots"]))
+
+    return jsonify({"leaderboard": ranks, "sort": "avg_steps" if sort_key == "avg_steps" else "games"})

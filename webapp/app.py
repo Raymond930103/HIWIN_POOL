@@ -18,9 +18,11 @@ except ImportError:  # direct script execution fallback
     from webapp.game import game_bp
 
 
-def create_app():
+def create_app(config_object=None):
     app = Flask(__name__, static_folder="static", template_folder="templates")
-    app.config.from_object(Config)
+    if config_object is None:
+        config_object = Config
+    app.config.from_object(config_object)
 
     db.init_app(app)
     init_login(app)
