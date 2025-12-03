@@ -1,5 +1,6 @@
 from pathlib import Path
 from flask import Flask, redirect, url_for
+import os
 from flask_login import login_required, current_user
 
 # Support running as a module (-m webapp.app) and as a script (python webapp/app.py)
@@ -17,9 +18,11 @@ except ImportError:  # direct script execution fallback
     from webapp.game import game_bp
 
 
-def create_app():
+def create_app(config_object=None):
     app = Flask(__name__, static_folder="static", template_folder="templates")
-    app.config.from_object(Config)
+    if config_object is None:
+        config_object = Config
+    app.config.from_object(config_object)
 
     db.init_app(app)
     init_login(app)
@@ -39,4 +42,13 @@ def create_app():
 
 if __name__ == "__main__":
     app = create_app()
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    # Allow overriding host/port/debug via environment for external access (e.g., ZeroTier)
+    host = os.getenv("WEB_HOST", "0.0.0.0")
+    try:
+        port = int(os.getenv("WEB_PORT", "8000"))
+    except Exception:
+        port = 8000
+    debug_val = os.getenv("WEB_DEBUG", "true").strip().lower()
+    debug = debug_val in ("1", "true", "yes", "on")
+    # threaded=True helps concurrent MJPEG streaming and API handling
+    app.run(host=host, port=port, debug=debug, threaded=True)
