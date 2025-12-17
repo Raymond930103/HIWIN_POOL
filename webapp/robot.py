@@ -13,7 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from main.vision.yoloball import capture_balls
-from main.run_shot import plan_shot_from_json
+from main.run_shot import plan_shot_from_json, get_last_plan_shot_error
 from main.configs.setting import HOST, PORT
 from main.communicate.tcp import create_connection, send_message, receive_message
 from .config import Config
@@ -75,23 +75,26 @@ def perform_handshaked_strike(*,
     1) Connect; expect 'CONNECTED'.
     2) Wait for 'MOVING'.
     3) Run capture+plan; compute payload.
-    4) Send '100', then payload.
+    4) Send '100' (success) or '200' (failure). When success wait for 'wait' then send payload.
     5) Wait for 'DONE' and close.
 
-    Returns (balls_data, result, payload, reply)
+    Returns (balls_data, result, payload, reply, error_msg)
     - result is Optional[Tuple[angle_deg, (cue_x_m, cue_y_m)]]
     - reply is final message received (e.g., 'DONE') or None
+    - error_msg is a human-friendly reason suitable for UI display
     """
     sock = None
     balls_data = {"timestamp": datetime.utcnow().isoformat(), "balls": []}
     result = None
     payload = None
     reply = None
+    error_msg = None
 
     try:
         sock = create_connection(HOST, PORT)
         if sock is None:
-            return balls_data, result, payload, reply
+            error_msg = "無法建立與機械手臂的連線"
+            return balls_data, result, payload, reply, error_msg
         try:
             sock.settimeout(recv_poll_timeout)
         except Exception:
@@ -115,7 +118,8 @@ def perform_handshaked_strike(*,
 
             if wait_moving_max is not None and (time.monotonic() - start) > wait_moving_max:
                 reply = "timeout_waiting_MOVING"
-                return balls_data, result, payload, reply
+                error_msg = "等待機械手臂 MOVING 訊息逾時"
+                return balls_data, result, payload, reply, error_msg
 
         # 3) Capture and plan now that robot is moving
         json_path, data = capture_balls(
@@ -137,8 +141,26 @@ def perform_handshaked_strike(*,
             angle_deg, cue_xy = result
             payload = compute_arm_payload(angle_deg, cue_xy)
 
-            # 4) Acknowledge and send coordinates
+            # 4) Acknowledge success and wait for 'wait' before sending coordinates
             send_message(sock, "100")
+            wait_start = time.monotonic()
+            wait_timeout = 10.0  # seconds to wait for 'wait' ack
+            while True:
+                ack = None
+                try:
+                    ack = receive_message(sock)
+                except Exception:
+                    ack = None
+                if ack:
+                    if ack.strip().lower() == "wait":
+                        break
+                    # store unexpected ack for debugging but keep waiting
+                    reply = ack
+                if wait_timeout is not None and (time.monotonic() - wait_start) > wait_timeout:
+                    reply = reply or "timeout_waiting_WAIT"
+                    error_msg = "等待機械手臂 wait 訊息逾時"
+                    return balls_data, result, payload, reply, error_msg
+
             send_message(sock, payload)
 
             # 5) Wait for DONE
@@ -154,11 +176,21 @@ def perform_handshaked_strike(*,
                         break
                 if wait_done_max is not None and (time.monotonic() - start) > wait_done_max:
                     reply = reply or "timeout_waiting_DONE"
+                    if error_msg is None:
+                        error_msg = "等待機械手臂 DONE 訊息逾時"
                     break
         else:
-            # Do not send fallback (0,0,0); just report no-plan
+            # Notify robot of failure with 200 and record error for logs
             payload = None
             reply = "NO_PLAN"
+            try:
+                send_message(sock, "200")
+            except Exception:
+                pass
+            err_msg = get_last_plan_shot_error()
+            error_msg = err_msg or "路徑規劃失敗，請稍後重試"
+            if err_msg:
+                print(f"[perform_handshaked_strike] 規劃失敗：{err_msg}")
 
     finally:
         try:
@@ -167,7 +199,7 @@ def perform_handshaked_strike(*,
         except Exception:
             pass
 
-    return balls_data, result, payload, reply
+    return balls_data, result, payload, reply, error_msg
 
 
 def ensure_dir(p: Path):

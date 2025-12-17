@@ -39,6 +39,7 @@
   <div class="row">
     <div class="card" style="flex:1; min-width:320px;">
       <h4>即時相機</h4>
+      <div id="runtimeError" style="display:none; color:#c0392b; font-weight:600; margin-bottom:6px;"></div>
       <img id="liveCam" style="max-width:100%; border:1px solid #ddd;" alt="Live camera feed" />
       <div style="margin-top:8px;">
         <button id="toggleCamBtn">開啟預覽</button>
@@ -57,9 +58,40 @@ let gameId = null;
 let currentTurn = null; // 'robot' | 'human'
 let camOn = false;
 const camUrl = '/video_feed';
+const runtimeErrorEl = document.getElementById('runtimeError');
+let runtimeErrorTimer = null;
+
+function shortenMessage(message, maxLen = 120) {
+  if (!message) return '';
+  const firstLine = message.split(/\r?\n/).find(line => line.trim().length) || message;
+  if (firstLine.length <= maxLen) {
+    return firstLine;
+  }
+  return firstLine.slice(0, maxLen - 1) + '…';
+}
 
 function setStatus(t) {
   document.getElementById('status').innerText = t;
+}
+
+function setRuntimeError(message) {
+  if (!runtimeErrorEl) return;
+  if (runtimeErrorTimer) {
+    clearTimeout(runtimeErrorTimer);
+    runtimeErrorTimer = null;
+  }
+  if (message) {
+    runtimeErrorEl.innerText = `錯誤：${shortenMessage(message, 80)}`;
+    runtimeErrorEl.style.display = '';
+    runtimeErrorTimer = setTimeout(() => {
+      runtimeErrorEl.innerText = '';
+      runtimeErrorEl.style.display = 'none';
+      runtimeErrorTimer = null;
+    }, 3000);
+  } else {
+    runtimeErrorEl.innerText = '';
+    runtimeErrorEl.style.display = 'none';
+  }
 }
 
 function updateControls() {
@@ -100,6 +132,7 @@ async function startGame() {
   updateControls();
   // Auto-start camera preview when game begins
   startCam();
+  setRuntimeError(null);
 }
 
 async function strikeOnce() {
@@ -111,9 +144,15 @@ async function strikeOnce() {
   const data = await res.json();
   if (!res.ok) { alert('打擊失敗: ' + (data.error||'')); return null; }
   updateImage(data.image_path);
+  const planError = data.plan_error;
+  const sessionError = data.error_msg;
+  const errorText = planError || sessionError;
+  const statusMsg = errorText || data.status_msg;
+  setRuntimeError(errorText || null);
   // Always show returned status message if provided
   if (data.sent) {
-    setStatus(data.status_msg || `步驟 ${data.step}，剩餘球數: ${data.balls_remaining}`);
+    const msg = statusMsg ? shortenMessage(statusMsg) : null;
+    setStatus(msg || `步驟 ${data.step}，剩餘球數: ${data.balls_remaining}`);
     if (data.game_status === 'ended' || (data.balls_remaining !== undefined && data.balls_remaining === 0)) {
       setStatus('遊戲結束');
       currentTurn = null;
@@ -122,7 +161,9 @@ async function strikeOnce() {
     }
   } else {
     // No coordinates were sent (no viable plan). Switch to player's turn.
-    setStatus(data.status_msg || '找不到可行路徑，換玩家回合');
+    const fallback = '找不到可行路徑，換玩家回合';
+    const msg = statusMsg ? shortenMessage(statusMsg) : null;
+    setStatus(msg || fallback);
     currentTurn = 'human';
   }
   updateControls();
@@ -140,6 +181,7 @@ async function captureOnly() {
   if (!res.ok) { alert('拍攝失敗: ' + (data.error||'')); return; }
   updateImage(data.image_path);
   setStatus(`玩家回合結束（拍攝）｜步驟 ${data.step}，剩餘球數: ${data.balls_remaining}`);
+  setRuntimeError(null);
   currentTurn = data.next_turn || 'robot';
   updateControls();
   if (wasOn) startCam();

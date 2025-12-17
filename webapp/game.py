@@ -367,9 +367,10 @@ def strike():
     payload = None
     sent = False
     reply = None
+    session_error = None
     if Config.SEND_TO_ROBOT:
         # Perform the full handshake session which also captures and plans
-        balls_data, result, payload, reply = perform_handshaked_strike(
+        balls_data, result, payload, reply, session_error = perform_handshaked_strike(
             target="min", intrinsics_path=Config.INTRINSICS_PATH
         )
         sent = payload is not None
@@ -381,7 +382,7 @@ def strike():
         if result is not None:
             angle_deg, cue_xy = result
             payload = compute_arm_payload(angle_deg, cue_xy)
-    plan_error = None if result is not None else get_last_plan_shot_error()
+    plan_error = None if result is not None else (session_error or get_last_plan_shot_error())
 
     # Build visualization image when possible
     balls = balls_data.get("balls", [])
@@ -435,9 +436,9 @@ def strike():
 
     # Provide a human-readable status for the frontend
     if sent:
-        status_msg = "已送出座標，等待機器人完成"
+        status_msg = session_error or "已送出座標，等待機器人完成"
     else:
-        status_msg = (plan_error or "找不到可行路徑，換玩家回合")
+        status_msg = (plan_error or session_error or "找不到可行路徑，換玩家回合")
 
     return jsonify({
         "step": step,
@@ -449,6 +450,7 @@ def strike():
         "sent": sent,
         "reply": reply,
         "plan_error": plan_error,
+        "error_msg": session_error,
         "game_status": game.status,
         "next_turn": _current_turn(game),
         "status_msg": status_msg,

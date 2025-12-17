@@ -103,6 +103,20 @@ def _render_surface(cue: Tuple[float, float], target: Tuple[float, float], block
     return surface
 
 
+def _prune_old_images(out_dir: Path, keep: int = 10) -> None:
+    """Keep only the newest `keep` render images to cap disk usage."""
+    images = sorted(
+        (p for p in out_dir.glob("path_*.png") if p.is_file()),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for old in images[keep:]:
+        try:
+            old.unlink()
+        except OSError:
+            pass
+
+
 def render_image(cue: Tuple[float, float], target: Tuple[float, float], blockers: List[Tuple[float, float]],
                  info: Optional[dict], out_dir: Path, labels: Optional[List[Tuple[str, Tuple[float, float]]]] = None) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -111,5 +125,6 @@ def render_image(cue: Tuple[float, float], target: Tuple[float, float], blockers
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
     out_path = out_dir / f"path_{ts}.png"
     pygame.image.save(surf, str(out_path))
+    _prune_old_images(out_dir)
     pygame.quit()
     return out_path
