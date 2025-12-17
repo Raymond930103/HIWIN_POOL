@@ -11,8 +11,10 @@ Use cases:
 How it works:
 - Define a symmetric scale around the table center. Center stays fixed;
   positions toward edges are scaled by a factor.
-- Two modes are provided: 'axis' (separate X/Y polynomials) and 'radial'
-  (scale depends on distance from center).
+- Axis mode can optionally add affine shear terms so X/Y coupling (cross-axis
+  drift) can be tuned directly.
+- Radial mode keeps things symmetric: scale depends only on distance from
+  center.
 
 Tune in place by editing the coefficients below and toggling FUDGE_ENABLED.
 """
@@ -37,6 +39,11 @@ KX2: float = -0.0
 KY: float = -0.0     # negative to shrink near top/bottom edges
 KY2: float = -0.0
 
+# Optional affine shear (cross-axis) coefficients (normalized coordinates)
+# u' = u*fx + CYX*v ; v' = v*fy + CXY*u
+CYX: float = 0.0    # how much Y displacement affects X correction
+CXY: float = 0.05    # how much X displacement affects Y correction
+
 # Radial mode coefficients
 # s = 1 + k1*r^2 + k2*r^4 ; r^2 = u^2 + v^2
 K1: float = 0.0
@@ -44,16 +51,19 @@ K2: float = 0.0
 
 
 def _axis_fudge(x_cm: float, y_cm: float) -> Tuple[float, float]:
-    xc, yc = TABLE_W_CM / 2.0, TABLE_H_CM / 2.0
-    if TABLE_W_CM <= 0 or TABLE_H_CM <= 0:
+    half_w, half_h = TABLE_W_CM / 2.0, TABLE_H_CM / 2.0
+    if half_w <= 0 or half_h <= 0:
         return x_cm, y_cm
-    u = (x_cm - xc) / (TABLE_W_CM / 2.0)
-    v = (y_cm - yc) / (TABLE_H_CM / 2.0)
+    xc, yc = half_w, half_h
+    u = (x_cm - xc) / half_w
+    v = (y_cm - yc) / half_h
     u2, v2 = u * u, v * v
     fx = 1.0 + KX * u2 + KX2 * (u2 * u2)
     fy = 1.0 + KY * v2 + KY2 * (v2 * v2)
-    x2 = xc + (x_cm - xc) * fx
-    y2 = yc + (y_cm - yc) * fy
+    u_scaled = u * fx + CYX * v
+    v_scaled = v * fy + CXY * u
+    x2 = xc + u_scaled * half_w
+    y2 = yc + v_scaled * half_h
     return x2, y2
 
 
@@ -81,4 +91,3 @@ def apply_fudge(x_cm: float, y_cm: float) -> Tuple[float, float]:
         return _radial_fudge(x_cm, y_cm)
     # default to axis mode
     return _axis_fudge(x_cm, y_cm)
-
