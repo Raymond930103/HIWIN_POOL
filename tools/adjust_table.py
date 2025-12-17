@@ -313,7 +313,9 @@ def main():
             disp_pts = pts_distorted_to_undistorted(corners if mode == "corners" else pockets, und_cfg)
             dists = np.linalg.norm(disp_pts - np.array([x, y], dtype=float), axis=1)
             idx = int(np.argmin(dists))
-            if dists[idx] < hit_radius:
+            # Make pockets easier to grab by matching the visible circle radius
+            radius = hit_radius if mode == "corners" else max(hit_radius, float(args.pocket_radius))
+            if dists[idx] < radius:
                 selected_idx = idx
         elif event == cv2.EVENT_MOUSEMOVE and selected_idx is not None:
             # Convert mouse position (undistorted) back to distorted for storage
@@ -367,7 +369,7 @@ def main():
             with open(pockets_path, "w", encoding="utf-8") as f:
                 json.dump(pockets_to_json(pockets), f, ensure_ascii=False, indent=2)
             print(f"[Saved] {corner_path} and {pockets_path}")
-            vis = draw()
+            vis = draw(frame)
             cv2.putText(vis, "Saved!", (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 255), 3)
             cv2.imshow(win, vis)
             cv2.waitKey(800)

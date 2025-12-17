@@ -52,18 +52,32 @@ if __name__ == "__main__":
             # 3) Capture and compute once MOVING arrives
             print("開始拍攝與計算…")
             json_path, _ = capture_balls(wait_sec=3, show=False, intrinsics_path=INTRINSICS)
+            plan_error = None
+            payload = None
             payload_and_result = compute_payload_from_latest_json(json_path) if json_path else None
             if payload_and_result is not None:
                 payload, (angle, cue_xy) = payload_and_result
                 print(f"計算結果：{angle:.2f}°，{cue_xy}")
             else:
-                payload = "0.00, 0.00, 0.00"  # fallback
-                print("無法計算路徑，改用預設 (0,0,0)")
+                plan_error = get_last_plan_shot_error() if json_path else "無法取得球桌影像，拍攝失敗"
+                plan_error = plan_error or "路徑規劃失敗，請重試"
+                print(f"路徑規劃失敗：{plan_error}")
 
-            # 4) Send '100' then coordinates
-            send_message(sock, "100")
-            send_message(sock, payload)
-            print(f"已送出座標：{payload}")
+            # 4) Send '100', wait for 'wait', then send coordinates
+            if payload is not None:
+                send_message(sock, "100")
+                while True:
+                    msg = receive_message(sock)
+                    if msg is None:
+                        raise RuntimeError("等待 wait 訊息時連線關閉")
+                    print(f"收到伺服器訊息：{msg}")
+                    if msg.strip().lower() == "wait":
+                        break
+                send_message(sock, payload)
+                print(f"已送出座標：{payload}")
+            else:
+                send_message(sock, "200")
+                print("已通知機械手臂：本次規劃失敗 (代碼 200)")
 
             # 5) Wait for DONE then loop (server will close connection)
             while True:
